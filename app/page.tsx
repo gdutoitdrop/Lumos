@@ -1,159 +1,165 @@
-import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { ModeToggle } from "@/components/mode-toggle"
-import { Heart, Users, MessageCircle, BookOpen, Shield, Sparkles, Moon, ChevronRight } from "lucide-react"
-import { HeroSection } from "@/components/hero-section"
-import { FeatureCard } from "@/components/feature-card"
-import { ProfileDemo } from "@/components/profile-demo"
-import { ForumPreview } from "@/components/forum-preview"
-import { ResourceHub } from "@/components/resource-hub"
-import { Footer } from "@/components/footer"
+import { createClient } from "@/lib/supabase/server"
+import { cookies } from "next/headers"
+import Link from "next/link"
 
-export default function Home() {
+export default async function Home() {
+  const cookieStore = cookies()
+  const supabase = createClient(cookieStore)
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-rose-50 to-white dark:from-slate-950 dark:to-slate-900">
-      <header className="container mx-auto py-6 px-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Moon className="h-8 w-8 text-rose-500" />
-          <span className="text-2xl font-bold bg-gradient-to-r from-rose-500 to-amber-500 bg-clip-text text-transparent">
+    <div className="flex flex-col min-h-screen">
+      <header className="px-4 lg:px-6 h-14 flex items-center">
+        <Link className="flex items-center justify-center" href="/">
+          <span className="font-bold text-2xl bg-gradient-to-r from-rose-500 to-amber-500 text-transparent bg-clip-text">
             Lumos
           </span>
-        </div>
-        <nav className="hidden md:flex items-center gap-8">
-          <Link href="#features" className="text-slate-700 hover:text-rose-500 dark:text-slate-200">
-            Features
-          </Link>
-          <Link href="#community" className="text-slate-700 hover:text-rose-500 dark:text-slate-200">
-            Community
-          </Link>
-          <Link href="#resources" className="text-slate-700 hover:text-rose-500 dark:text-slate-200">
-            Resources
-          </Link>
-          <Link href="#about" className="text-slate-700 hover:text-rose-500 dark:text-slate-200">
-            About
-          </Link>
+        </Link>
+        <nav className="ml-auto flex gap-4 sm:gap-6">
+          {user ? (
+            <Button asChild>
+              <Link href="/dashboard">Dashboard</Link>
+            </Button>
+          ) : (
+            <>
+              <Button asChild variant="ghost">
+                <Link href="/login">Login</Link>
+              </Button>
+              <Button asChild>
+                <Link href="/join">Join Lumos</Link>
+              </Button>
+            </>
+          )}
         </nav>
-        <div className="flex items-center gap-4">
-          <ModeToggle />
-          <Button variant="outline" className="hidden sm:flex" asChild>
-            <Link href="/login">Log in</Link>
-          </Button>
-          <Button className="bg-gradient-to-r from-rose-500 to-amber-500 text-white" asChild>
-            <Link href="/signup">Join Lumos</Link>
-          </Button>
-        </div>
       </header>
-
-      <main>
-        <HeroSection />
-
-        <section id="features" className="container mx-auto py-20 px-4">
-          <h2 className="text-3xl font-bold text-center mb-4">How Lumos Works</h2>
-          <p className="text-slate-600 dark:text-slate-300 text-center max-w-2xl mx-auto mb-16">
-            Reimagining social connections with emotional wellbeing, intentional design, and authentic connection at the
-            core.
-          </p>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            <FeatureCard
-              icon={<Heart className="h-8 w-8 text-rose-500" />}
-              title="Date & Connect Modes"
-              description="Choose between romantic or platonic connections with clear intentions and expectations."
-            />
-            <FeatureCard
-              icon={<Sparkles className="h-8 w-8 text-amber-500" />}
-              title="Mood-Aware Algorithm"
-              description="Our matching considers compatibility, shared values, and current emotional states for empathetic connections."
-            />
-            <FeatureCard
-              icon={<MessageCircle className="h-8 w-8 text-emerald-500" />}
-              title="Tone-Sensitive Messaging"
-              description="AI-assisted communication helps reframe messages with kindness and clarity during stressful moments."
-            />
-            <FeatureCard
-              icon={<Users className="h-8 w-8 text-blue-500" />}
-              title="Community Forums"
-              description="Safe, moderated spaces to share stories, seek advice, and connect with others who understand."
-            />
-            <FeatureCard
-              icon={<BookOpen className="h-8 w-8 text-purple-500" />}
-              title="Resource Hub"
-              description="Curated mental health content, coping tools, and crisis resources to support your wellbeing journey."
-            />
-            <FeatureCard
-              icon={<Shield className="h-8 w-8 text-slate-500" />}
-              title="Safety First"
-              description="Comprehensive reporting tools, profile verification, and check-in functions to ensure a safe experience."
-            />
-          </div>
-        </section>
-
-        <section className="bg-rose-50 dark:bg-slate-800 py-20 px-4">
-          <div className="container mx-auto">
-            <div className="flex flex-col md:flex-row items-center gap-12">
-              <div className="md:w-1/2">
-                <h2 className="text-3xl font-bold mb-4">Express Your Authentic Self</h2>
-                <p className="text-slate-600 dark:text-slate-300 mb-6">
-                  Create rich, expressive profiles that go beyond surface-level bios with prompts that invite
-                  reflection, compassion, and honesty.
+      <main className="flex-1">
+        <section className="w-full py-12 md:py-24 lg:py-32 xl:py-48">
+          <div className="container px-4 md:px-6">
+            <div className="flex flex-col items-center space-y-4 text-center">
+              <div className="space-y-2">
+                <h1 className="text-3xl font-bold tracking-tighter sm:text-4xl md:text-5xl lg:text-6xl/none">
+                  Connect, Share, and Heal with{" "}
+                  <span className="bg-gradient-to-r from-rose-500 to-amber-500 text-transparent bg-clip-text">
+                    Lumos
+                  </span>
+                </h1>
+                <p className="mx-auto max-w-[700px] text-gray-500 md:text-xl dark:text-gray-400">
+                  A supportive community for mental health. Find connection, share your journey, and discover resources
+                  for your wellbeing.
                 </p>
-                <div className="flex gap-4">
-                  <Button className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                    Create Your Profile
-                  </Button>
-                  <Button variant="outline">See Examples</Button>
-                </div>
               </div>
-              <div className="md:w-1/2">
-                <ProfileDemo />
+              <div className="space-x-4">
+                <Button asChild className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
+                  <Link href="/join">Join Lumos</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/about">Learn More</Link>
+                </Button>
               </div>
             </div>
           </div>
         </section>
-
-        <section id="community" className="container mx-auto py-20 px-4">
-          <h2 className="text-3xl font-bold text-center mb-4">Community Forum</h2>
-          <p className="text-slate-600 dark:text-slate-300 text-center max-w-2xl mx-auto mb-16">
-            A safe, moderated space where users can share stories, ask for advice, post uplifting content, or simply
-            connect with others who "get it."
-          </p>
-
-          <ForumPreview />
-
-          <div className="text-center mt-12">
-            <Button className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-              Explore All Forums <ChevronRight className="ml-2 h-4 w-4" />
-            </Button>
-          </div>
-        </section>
-
-        <section id="resources" className="bg-amber-50 dark:bg-slate-800 py-20 px-4">
-          <div className="container mx-auto">
-            <h2 className="text-3xl font-bold text-center mb-4">Resource Hub</h2>
-            <p className="text-slate-600 dark:text-slate-300 text-center max-w-2xl mx-auto mb-16">
-              Access curated mental health content, coping tools, breathing exercises, journaling prompts, and links to
-              crisis resources.
-            </p>
-
-            <ResourceHub />
-          </div>
-        </section>
-
-        <section className="container mx-auto py-20 px-4">
-          <div className="bg-gradient-to-r from-rose-100 to-amber-100 dark:from-slate-800 dark:to-slate-700 rounded-3xl p-8 md:p-12 text-center">
-            <h2 className="text-3xl font-bold mb-4">Join Our Community</h2>
-            <p className="text-slate-700 dark:text-slate-200 max-w-2xl mx-auto mb-8">
-              Lumos isn't just another app—it's a social sanctuary where vulnerability is strength, and connection is
-              grounded in empathy.
-            </p>
-            <Button size="lg" className="bg-gradient-to-r from-rose-500 to-amber-500 text-white" asChild>
-              <Link href="/signup">Get Started Today</Link>
-            </Button>
+        <section className="w-full py-12 md:py-24 lg:py-32 bg-gray-100 dark:bg-gray-800">
+          <div className="container px-4 md:px-6">
+            <div className="flex flex-col items-center justify-center space-y-4 text-center">
+              <div className="space-y-2">
+                <h2 className="text-3xl font-bold tracking-tighter md:text-4xl">How Lumos Works</h2>
+                <p className="mx-auto max-w-[700px] text-gray-500 md:text-xl dark:text-gray-400">
+                  Our platform is designed to help you connect with others who understand your journey.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3">
+                <div className="flex flex-col items-center space-y-2">
+                  <div className="rounded-full bg-gradient-to-r from-rose-500 to-amber-500 p-4">
+                    <svg
+                      className="h-6 w-6 text-white"
+                      fill="none"
+                      height="24"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      viewBox="0 0 24 24"
+                      width="24"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                      <circle cx="9" cy="7" r="4" />
+                      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+                      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+                    </svg>
+                  </div>
+                  <h3 className="text-xl font-bold">Connect</h3>
+                  <p className="text-gray-500 dark:text-gray-400">
+                    Find others with similar experiences and build meaningful connections.
+                  </p>
+                </div>
+                <div className="flex flex-col items-center space-y-2">
+                  <div className="rounded-full bg-gradient-to-r from-rose-500 to-amber-500 p-4">
+                    <svg
+                      className="h-6 w-6 text-white"
+                      fill="none"
+                      height="24"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      viewBox="0 0 24 24"
+                      width="24"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-xl font-bold">Share</h3>
+                  <p className="text-gray-500 dark:text-gray-400">
+                    Share your journey in a safe, supportive community that understands.
+                  </p>
+                </div>
+                <div className="flex flex-col items-center space-y-2">
+                  <div className="rounded-full bg-gradient-to-r from-rose-500 to-amber-500 p-4">
+                    <svg
+                      className="h-6 w-6 text-white"
+                      fill="none"
+                      height="24"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      viewBox="0 0 24 24"
+                      width="24"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M12 2a10 10 0 1 0 10 10H12V2Z" />
+                      <path d="M12 12 2.1 9.1a10 10 0 0 0 2.8 9.8L12 12Z" />
+                      <path d="M12 12 4.9 19.9A10 10 0 0 0 19.8 14L12 12Z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-xl font-bold">Heal</h3>
+                  <p className="text-gray-500 dark:text-gray-400">
+                    Access resources and support to help you on your mental health journey.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </main>
-
-      <Footer />
+      <footer className="flex flex-col gap-2 sm:flex-row py-6 w-full shrink-0 items-center px-4 md:px-6 border-t">
+        <p className="text-xs text-gray-500 dark:text-gray-400">© 2023 Lumos. All rights reserved.</p>
+        <nav className="sm:ml-auto flex gap-4 sm:gap-6">
+          <Link className="text-xs hover:underline underline-offset-4" href="#">
+            Terms of Service
+          </Link>
+          <Link className="text-xs hover:underline underline-offset-4" href="#">
+            Privacy
+          </Link>
+        </nav>
+      </footer>
     </div>
   )
 }

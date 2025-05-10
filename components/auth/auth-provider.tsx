@@ -3,87 +3,121 @@
 import type React from "react"
 
 import { createContext, useContext, useEffect, useState } from "react"
-import type { Session, User } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase/client"
-import { useRouter } from "next/navigation"
+import type { User } from "@supabase/supabase-js"
+import type { Database } from "@/lib/database.types"
+
+type Subscription = Database["public"]["Tables"]["subscriptions"]["Row"]
 
 type AuthContextType = {
   user: User | null
-  session: Session | null
-  isLoading: boolean
+  profile: any | null
+  isPremium: boolean
+  subscription: Subscription | null
+  loading: boolean
   signOut: () => Promise<void>
-  resetPassword: (email: string) => Promise<void>
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const AuthContext = createContext<AuthContextType>({
+  user: null,
+  profile: null,
+  isPremium: false,
+  subscription: null,
+  loading: true,
+  signOut: async () => {},
+})
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [session, setSession] = useState<Session | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const router = useRouter()
+  const [profile, setProfile] = useState<any | null>(null)
+  const [subscription, setSubscription] = useState<Subscription | null>(null)
+  const [isPremium, setIsPremium] = useState(false)
+  const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
   useEffect(() => {
-    const getSession = async () => {
-      const {
-        data: { session },
-        error,
-      } = await supabase.auth.getSession()
-      if (error) {
-        console.error("Error getting session:", error)
+    const fetchUserData = async () => {
+      try {
+        // Get current auth user
+        const {
+          data: { user: currentUser },
+        } = await supabase.auth.getUser()
+        setUser(currentUser)
+
+        if (currentUser) {
+          // Get user profile
+          const { data: userProfile } = await supabase.from("profiles").select("*").eq("id", currentUser.id).single()
+
+          setProfile(userProfile)
+
+          // Get subscription status
+          const { data: userSubscription } = await supabase
+            .from("subscriptions")
+            .select("*")
+            .eq("user_id", currentUser.id)
+            .eq("status", "active")
+            .maybeSingle()
+
+          setSubscription(userSubscription)
+          setIsPremium(!!userSubscription)
+        }
+      } catch (error) {
+        console.error("Error fetching user data:", error)
+      } finally {
+        setLoading(false)
       }
-      setSession(session)
-      setUser(session?.user ?? null)
-      setIsLoading(false)
     }
 
-    getSession()
+    fetchUserData()
 
+    // Set up auth state change listener
     const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      setIsLoading(false)
-      router.refresh()
+      data: { subscription: authSubscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === "SIGNED_IN" && session?.user) {
+        setUser(session.user)
+
+        // Get user profile
+        const { data: userProfile } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
+
+        setProfile(userProfile)
+
+        // Get subscription status
+        const { data: userSubscription } = await supabase
+          .from("subscriptions")
+          .select("*")
+          .eq("user_id", session.user.id)
+          .eq("status", "active")
+          .maybeSingle()
+
+        setSubscription(userSubscription)
+        setIsPremium(!!userSubscription)
+      } else if (event === "SIGNED_OUT") {
+        setUser(null)
+        setProfile(null)
+        setSubscription(null)
+        setIsPremium(false)
+      }
     })
 
     return () => {
-      subscription.unsubscribe()
+      authSubscription.unsubscribe()
     }
-  }, [router, supabase.auth])
+  }, [supabase])
 
   const signOut = async () => {
-    setIsLoading(true)
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      throw error
-    }
-    setIsLoading(false)
-    router.push("/")
-  }
-
-  const resetPassword = async (email: string) => {
-    setIsLoading(true)
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    })
-    if (error) {
-      throw error
-    }
-    setIsLoading(false)
+    await supabase.auth.signOut()
+    setUser(null)
+    setProfile(null)
+    setSubscription(null)
+    setIsPremium(false)
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, isLoading, signOut, resetPassword }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, profile, isPremium, subscription, loading, signOut }}>
+      {children}
+    </AuthContext.Provider>
   )
 }
 
-export function useAuth() {
-  const context = useContext(AuthContext)
-  if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider")
-  }
-  return context
-}
+export const useAuth = () => useContext(AuthContext)

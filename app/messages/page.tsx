@@ -1,20 +1,30 @@
-import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { NewMessageButton } from "@/components/messaging/new-message-button"
 import { ConversationList } from "@/components/messaging/conversation-list"
+import { createClient } from "@/lib/supabase/server"
+import { cookies } from "next/headers"
+import { redirect } from "next/navigation"
 
-export default function MessagesPage() {
+export default async function MessagesPage() {
+  const cookieStore = cookies()
+  const supabase = createClient(cookieStore)
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    redirect("/login")
+  }
+
   return (
-    <DashboardLayout>
-      <div className="h-screen flex">
-        <div className="w-full md:w-80 border-r border-slate-200 dark:border-slate-700">
-          <ConversationList />
-        </div>
-        <div className="hidden md:flex flex-1 items-center justify-center">
-          <div className="text-center">
-            <h2 className="text-xl font-semibold mb-2">Select a conversation</h2>
-            <p className="text-slate-500 dark:text-slate-400">Choose a conversation from the list or start a new one</p>
-          </div>
-        </div>
+    <div className="container mx-auto p-4 max-w-5xl">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Messages</h1>
+        <NewMessageButton />
       </div>
-    </DashboardLayout>
+
+      <div className="border rounded-lg overflow-hidden">
+        <ConversationList />
+      </div>
+    </div>
   )
 }
