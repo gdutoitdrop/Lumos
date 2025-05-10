@@ -3,9 +3,8 @@
 import { createClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import { cookies } from "next/headers"
-import { redirect } from "next/navigation"
 
-// Create a new conversation
+// Add the missing createConversation export
 export async function createConversation(profileId: string) {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
@@ -21,24 +20,36 @@ export async function createConversation(profileId: string) {
   }
 
   // Check if a conversation already exists between these users
-  const { data: existingConversations, error: existingError } = await supabase
+  const { data: userConversations } = await supabase
     .from("conversation_participants")
     .select("conversation_id")
     .eq("profile_id", user.id)
-    .in(
-      "conversation_id",
-      supabase.from("conversation_participants").select("conversation_id").eq("profile_id", profileId),
-    )
 
-  if (existingError) {
-    throw new Error("Failed to check existing conversations")
+  if (!userConversations || userConversations.length === 0) {
+    // No conversations yet, create a new one
+    return createNewConversation(user.id, profileId, supabase)
   }
 
-  // If a conversation exists, redirect to it
-  if (existingConversations.length > 0) {
-    redirect(`/messages/${existingConversations[0].conversation_id}`)
+  const conversationIds = userConversations.map((c) => c.conversation_id)
+
+  // Check if the other user is in any of these conversations
+  const { data: otherUserParticipations } = await supabase
+    .from("conversation_participants")
+    .select("conversation_id")
+    .eq("profile_id", profileId)
+    .in("conversation_id", conversationIds)
+
+  if (otherUserParticipations && otherUserParticipations.length > 0) {
+    // Conversation already exists
+    return { conversationId: otherUserParticipations[0].conversation_id }
   }
 
+  // Create a new conversation
+  return createNewConversation(user.id, profileId, supabase)
+}
+
+// Helper function to create a new conversation
+async function createNewConversation(userId: string, otherUserId: string, supabase: any) {
   // Create a new conversation
   const { data: conversation, error: conversationError } = await supabase
     .from("conversations")
@@ -47,23 +58,53 @@ export async function createConversation(profileId: string) {
     .single()
 
   if (conversationError || !conversation) {
-    throw new Error("Failed to create conversation")
+    return { error: "Failed to create conversation" }
   }
 
-  // Add participants
-  const participants = [
-    { conversation_id: conversation.id, profile_id: user.id },
-    { conversation_id: conversation.id, profile_id: profileId },
-  ]
-
-  const { error: participantsError } = await supabase.from("conversation_participants").insert(participants)
+  // Add participants to the conversation
+  const { error: participantsError } = await supabase.from("conversation_participants").insert([
+    { conversation_id: conversation.id, profile_id: userId },
+    { conversation_id: conversation.id, profile_id: otherUserId },
+  ])
 
   if (participantsError) {
-    throw new Error("Failed to add participants")
+    return { error: "Failed to add participants" }
   }
 
-  revalidatePath("/messages")
-  redirect(`/messages/${conversation.id}`)
+  return { conversationId: conversation.id }
+}
+
+// Create a new conversation
+export async function startConversation(matchId: string) {
+  const cookieStore = cookies()
+  const supabase = createClient(cookieStore)
+
+  // Get the current user
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    throw new Error("Unauthorized")
+  }
+
+  // Get the match details to find both participants
+  const { data: match, error: matchError } = await supabase
+    .from("matches")
+    .select("user1_id, user2_id")
+    .eq("id", matchId)
+    .single()
+
+  if (matchError || !match) {
+    throw new Error("Match not found")
+  }
+
+  // Determine the other user ID
+  const otherUserId = match.user1_id === user.id ? match.user2_id : match.user1_id
+
+  // Use the createConversation function to handle the rest
+  return createConversation(otherUserId)
 }
 
 // Send a message
