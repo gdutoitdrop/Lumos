@@ -4,92 +4,68 @@ import type React from "react"
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useAuth } from "@/components/auth/auth-provider"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { createThread } from "@/actions/forum"
 import { useToast } from "@/components/ui/use-toast"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 
-export function NewThreadForm({ category }: { category: string }) {
+export function NewThreadForm({ categorySlug }: { categorySlug: string }) {
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const { user } = useAuth()
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const { toast } = useToast()
   const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!user) return
-
-    setError(null)
-    setSubmitting(true)
+    setIsSubmitting(true)
 
     try {
-      const formData = new FormData()
-      formData.append("title", title)
-      formData.append("content", content)
-      formData.append("category", category)
-
-      const result = await createThread(formData)
+      const result = await createThread({
+        title,
+        content,
+        categorySlug,
+      })
 
       if (result.success) {
         toast({
-          title: "Success",
-          description: "Thread created successfully!",
+          title: "Thread created",
+          description: "Your thread has been posted successfully.",
         })
-
-        // Use client-side navigation instead of server redirect
-        router.push(`/community/${result.categorySlug}/${result.threadId}`)
+        router.push(`/community/${categorySlug}/${result.threadId}`)
+      } else {
+        toast({
+          title: "Error",
+          description: result.error || "Failed to create thread. Please try again.",
+          variant: "destructive",
+        })
       }
-    } catch (err: any) {
-      setError(err.message || "An error occurred while creating the thread")
+    } catch (error) {
+      console.error("Error creating thread:", error)
       toast({
         title: "Error",
-        description: err.message || "Failed to create thread. Please try again.",
+        description: "Something went wrong. Please try again.",
         variant: "destructive",
       })
-      console.error(err)
     } finally {
-      setSubmitting(false)
+      setIsSubmitting(false)
     }
-  }
-
-  if (!user) {
-    return (
-      <Card>
-        <CardContent className="py-6 text-center">
-          <p className="mb-4">You need to be logged in to create a new thread.</p>
-          <Button asChild>
-            <Link href="/login">Log In</Link>
-          </Button>
-        </CardContent>
-      </Card>
-    )
   }
 
   return (
     <Card>
       <CardContent className="pt-6">
-        {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-2">
             <Label htmlFor="title">Title</Label>
             <Input
               id="title"
+              placeholder="Enter a descriptive title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="Enter a descriptive title for your thread"
               required
             />
           </div>
@@ -97,19 +73,20 @@ export function NewThreadForm({ category }: { category: string }) {
             <Label htmlFor="content">Content</Label>
             <Textarea
               id="content"
+              placeholder="Share your thoughts, questions, or experiences..."
+              rows={10}
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="Share your thoughts, questions, or experiences..."
-              rows={8}
               required
+              className="resize-y"
             />
           </div>
           <Button
             type="submit"
             className="w-full bg-gradient-to-r from-rose-500 to-amber-500 text-white"
-            disabled={submitting || !title.trim() || !content.trim()}
+            disabled={isSubmitting}
           >
-            {submitting ? "Creating Thread..." : "Create Thread"}
+            {isSubmitting ? "Creating..." : "Create Thread"}
           </Button>
         </form>
       </CardContent>
