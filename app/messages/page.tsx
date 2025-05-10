@@ -1,30 +1,18 @@
-import { NewMessageButton } from "@/components/messaging/new-message-button"
+import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { ConversationList } from "@/components/messaging/conversation-list"
-import { createClient } from "@/lib/supabase/server"
-import { cookies } from "next/headers"
-import { redirect } from "next/navigation"
 
-export default async function MessagesPage() {
-  const cookieStore = cookies()
-  const supabase = createClient(cookieStore)
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    redirect("/login")
-  }
-
+export default function MessagesPage() {
   return (
-    <div className="container mx-auto p-4 max-w-5xl">
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Messages</h1>
-        <NewMessageButton />
+    <DashboardLayout>
+      <div className="h-screen flex flex-col">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+          <h1 className="text-2xl font-bold">Messages</h1>
+          <p className="text-slate-500 dark:text-slate-400">Connect with your matches and friends</p>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <ConversationList />
+        </div>
       </div>
-
-      <div className="border rounded-lg overflow-hidden">
-        <ConversationList />
-      </div>
-    </div>
+    </DashboardLayout>
   )
 }

@@ -1,139 +1,142 @@
 import { NextResponse } from "next/server"
-import { headers } from "next/headers"
 import { createClient } from "@/lib/supabase/server"
-import { getStripe } from "@/lib/stripe"
+import { stripe } from "@/lib/stripe"
 
 export async function POST(request: Request) {
+  const body = await request.text()
+  const signature = request.headers.get("stripe-signature") as string
+
+  let event
   try {
-    const body = await request.text()
-    const signature = headers().get("stripe-signature") || ""
+    event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET || "")
+  } catch (error: any) {
+    return NextResponse.json({ error: `Webhook Error: ${error.message}` }, { status: 400 })
+  }
 
-    if (!process.env.STRIPE_WEBHOOK_SECRET) {
-      console.warn("Missing STRIPE_WEBHOOK_SECRET, skipping signature verification")
-      return NextResponse.json({ received: true })
-    }
+  const supabase = createClient()
 
-    try {
-      const stripe = getStripe()
-      const event = stripe.webhooks.constructEvent(body, signature, process.env.STRIPE_WEBHOOK_SECRET)
+  try {
+    switch (event.type) {
+      case "checkout.session.completed": {
+        const session = event.data.object as any
+        const userId = session.metadata.userId
+        const plan = session.metadata.plan
 
-      const supabase = createClient()
+        // Create or update subscription
+        await supabase.from("subscriptions").upsert({
+          profile_id: userId,
+          stripe_customer_id: session.customer,
+          stripe_subscription_id: session.subscription,
+          plan_type: plan,
+          status: "active",
+          current_period_start: new Date(session.created * 1000).toISOString(),
+          current_period_end: new Date(session.created * 1000 + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from creation
+        })
 
-      // Handle the event
-      switch (event.type) {
-        case "checkout.session.completed": {
-          const session = event.data.object as any
-          const userId = session.metadata.userId
-          const plan = session.metadata.plan
-          const subscriptionId = session.subscription
-
-          // Update the user's subscription
-          await supabase.from("subscriptions").upsert({
-            profile_id: userId,
-            stripe_subscription_id: subscriptionId,
-            stripe_customer_id: session.customer,
+        // Create email notification
+        await supabase.from("email_notifications").insert({
+          profile_id: userId,
+          type: "subscription_created",
+          data: {
             plan,
-            status: "active",
-            current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now as placeholder
-          })
+            customer_email: session.customer_details.email,
+          },
+          is_sent: false,
+        })
 
-          // Add to email queue
-          await supabase.from("email_queue").insert({
-            profile_id: userId,
-            template: "subscription_created",
-            data: { plan },
-            status: "pending",
-          })
+        break
+      }
+      case "invoice.payment_succeeded": {
+        const invoice = event.data.object as any
+        const subscriptionId = invoice.subscription
+        const customerId = invoice.customer
 
-          break
-        }
-        case "invoice.payment_succeeded": {
-          const invoice = event.data.object as any
-          const subscriptionId = invoice.subscription
+        // Get the subscription from Stripe
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId)
 
-          // Get the subscription from the database
-          const { data: subscription } = await supabase
-            .from("subscriptions")
-            .select("profile_id")
-            .eq("stripe_subscription_id", subscriptionId)
-            .single()
+        // Update subscription period
+        const { data: existingSubscription } = await supabase
+          .from("subscriptions")
+          .select("profile_id")
+          .eq("stripe_subscription_id", subscriptionId)
+          .single()
 
-          if (subscription) {
-            // Update the subscription period
-            const stripeSubscription = await stripe.subscriptions.retrieve(subscriptionId)
-
-            await supabase
-              .from("subscriptions")
-              .update({
-                status: "active",
-                current_period_end: new Date(stripeSubscription.current_period_end * 1000).toISOString(),
-              })
-              .eq("stripe_subscription_id", subscriptionId)
-
-            // Add to email queue
-            await supabase.from("email_queue").insert({
-              profile_id: subscription.profile_id,
-              template: "payment_succeeded",
-              data: { amount: invoice.amount_paid / 100 },
-              status: "pending",
-            })
-          }
-
-          break
-        }
-        case "customer.subscription.updated": {
-          const stripeSubscription = event.data.object as any
-
+        if (existingSubscription) {
           await supabase
             .from("subscriptions")
             .update({
-              status: stripeSubscription.status,
-              current_period_end: new Date(stripeSubscription.current_period_end * 1000).toISOString(),
+              status: subscription.status,
+              current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+              current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
             })
-            .eq("stripe_subscription_id", stripeSubscription.id)
+            .eq("stripe_subscription_id", subscriptionId)
 
-          break
+          // Create email notification
+          await supabase.from("email_notifications").insert({
+            profile_id: existingSubscription.profile_id,
+            type: "payment_succeeded",
+            data: {
+              amount: invoice.amount_paid / 100,
+              currency: invoice.currency,
+              invoice_url: invoice.hosted_invoice_url,
+            },
+            is_sent: false,
+          })
         }
-        case "customer.subscription.deleted": {
-          const stripeSubscription = event.data.object as any
-
-          // Get the subscription from the database
-          const { data: subscription } = await supabase
-            .from("subscriptions")
-            .select("profile_id")
-            .eq("stripe_subscription_id", stripeSubscription.id)
-            .single()
-
-          // Update the subscription status
-          await supabase
-            .from("subscriptions")
-            .update({ status: "canceled" })
-            .eq("stripe_subscription_id", stripeSubscription.id)
-
-          if (subscription) {
-            // Add to email queue
-            await supabase.from("email_queue").insert({
-              profile_id: subscription.profile_id,
-              template: "subscription_canceled",
-              data: {},
-              status: "pending",
-            })
-          }
-
-          break
-        }
+        break
       }
+      case "customer.subscription.updated": {
+        const subscription = event.data.object as any
+        const subscriptionId = subscription.id
 
-      return NextResponse.json({ received: true })
-    } catch (err) {
-      console.error("Webhook error:", err)
-      return NextResponse.json(
-        { error: `Webhook Error: ${err instanceof Error ? err.message : "Unknown error"}` },
-        { status: 400 },
-      )
+        // Update subscription status
+        await supabase
+          .from("subscriptions")
+          .update({
+            status: subscription.status,
+            current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
+            current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+          })
+          .eq("stripe_subscription_id", subscriptionId)
+        break
+      }
+      case "customer.subscription.deleted": {
+        const subscription = event.data.object as any
+        const subscriptionId = subscription.id
+
+        // Get the subscription from the database
+        const { data: existingSubscription } = await supabase
+          .from("subscriptions")
+          .select("profile_id")
+          .eq("stripe_subscription_id", subscriptionId)
+          .single()
+
+        // Update subscription status
+        await supabase
+          .from("subscriptions")
+          .update({
+            status: "canceled",
+          })
+          .eq("stripe_subscription_id", subscriptionId)
+
+        if (existingSubscription) {
+          // Create email notification
+          await supabase.from("email_notifications").insert({
+            profile_id: existingSubscription.profile_id,
+            type: "subscription_canceled",
+            data: {
+              canceled_at: new Date().toISOString(),
+            },
+            is_sent: false,
+          })
+        }
+        break
+      }
     }
+
+    return NextResponse.json({ received: true })
   } catch (error) {
-    console.error("Error processing webhook:", error)
+    console.error("Error handling webhook:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

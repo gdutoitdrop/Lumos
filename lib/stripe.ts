@@ -1,10 +1,18 @@
 import Stripe from "stripe"
 
-// Define subscription plans
+if (!process.env.STRIPE_SECRET_KEY) {
+  throw new Error("Missing STRIPE_SECRET_KEY")
+}
+
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+  apiVersion: "2023-10-16",
+})
+
 export const PLANS = {
-  premium: {
+  PREMIUM: {
     name: "Premium",
-    id: process.env.STRIPE_PREMIUM_PRICE_ID || "",
+    id: process.env.STRIPE_PREMIUM_PRICE_ID || "price_1234567890",
+    price: 9.99,
     features: [
       "Advanced matching algorithm",
       "Unlimited matches",
@@ -12,30 +20,5 @@ export const PLANS = {
       "Priority support",
       "Ad-free experience",
     ],
-    price: "$9.99",
-    interval: "month",
   },
-}
-
-// Create a function to get the Stripe client
-export function getStripe() {
-  const secretKey = process.env.STRIPE_SECRET_KEY
-
-  if (!secretKey) {
-    console.warn("Missing Stripe secret key")
-    throw new Error("Stripe is not properly configured")
-  }
-
-  return new Stripe(secretKey, {
-    apiVersion: "2023-10-16", // Use the latest API version
-    appInfo: {
-      name: "Lumos Platform",
-      version: "1.0.0",
-    },
-  })
-}
-
-// Create a function to get the Stripe publishable key
-export function getStripePublishableKey() {
-  return process.env.STRIPE_PUBLISHABLE_KEY || ""
 }
