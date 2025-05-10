@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Send } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
-import { realtimeManager } from "@/lib/supabase/realtime"
 import type { Database } from "@/lib/database.types"
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
@@ -99,33 +98,45 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
 
     fetchMessages()
 
-    // Subscribe to new messages using the realtime manager
-    const unsubscribe = realtimeManager.subscribeToMessages(conversationId, async (payload) => {
-      const newMessage = payload.new as Message
+    // Subscribe to new messages
+    const messagesSubscription = supabase
+      .channel(`messages-${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          const newMessage = payload.new as Message
 
-      // Get the sender's profile
-      const { data: sender, error: senderError } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", newMessage.profile_id)
-        .single()
+          // Get the sender's profile
+          const { data: sender, error: senderError } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", newMessage.profile_id)
+            .single()
 
-      if (senderError) {
-        console.error("Error fetching sender:", senderError)
-        return
-      }
+          if (senderError) {
+            console.error("Error fetching sender:", senderError)
+            return
+          }
 
-      // Add the new message to the state
-      setMessages((prev) => [...prev, { ...newMessage, sender }])
+          // Add the new message to the state
+          setMessages((prev) => [...prev, { ...newMessage, sender }])
 
-      // Mark the message as read if it's not from the current user
-      if (newMessage.profile_id !== user?.id) {
-        await supabase.from("messages").update({ is_read: true }).eq("id", newMessage.id)
-      }
-    })
+          // Mark the message as read if it's not from the current user
+          if (newMessage.profile_id !== user.id) {
+            await supabase.from("messages").update({ is_read: true }).eq("id", newMessage.id)
+          }
+        },
+      )
+      .subscribe()
 
     return () => {
-      unsubscribe()
+      supabase.removeChannel(messagesSubscription)
     }
   }, [user, conversationId, supabase])
 
@@ -278,6 +289,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
             onChange={(e) => setNewMessage(e.target.value)}
             className="min-h-[80px] resize-none"
           />
+          <Button type="submit" size="icon" />
           <Button
             type="submit"
             size="icon"
