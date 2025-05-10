@@ -3,7 +3,6 @@
 import { createClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import { cookies } from "next/headers"
-import { redirect } from "next/navigation"
 
 // Create a new thread
 export async function createThread(formData: FormData) {
@@ -68,7 +67,13 @@ export async function createThread(formData: FormData) {
     }
 
     revalidatePath(`/community/${categorySlug}`)
-    redirect(`/community/${categorySlug}/${thread.id}`)
+
+    // Instead of redirecting, return the thread data and let the client handle the navigation
+    return {
+      success: true,
+      threadId: thread.id,
+      categorySlug,
+    }
   } catch (error) {
     console.error("Error creating thread:", error)
     throw error

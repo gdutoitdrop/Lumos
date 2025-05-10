@@ -13,6 +13,7 @@ import { useAuth } from "@/components/auth/auth-provider"
 import { createThread } from "@/actions/forum"
 import { useToast } from "@/components/ui/use-toast"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 export function NewThreadForm({ category }: { category: string }) {
   const [title, setTitle] = useState("")
@@ -21,6 +22,7 @@ export function NewThreadForm({ category }: { category: string }) {
   const [submitting, setSubmitting] = useState(false)
   const { user } = useAuth()
   const { toast } = useToast()
+  const router = useRouter()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -35,7 +37,17 @@ export function NewThreadForm({ category }: { category: string }) {
       formData.append("content", content)
       formData.append("category", category)
 
-      await createThread(formData)
+      const result = await createThread(formData)
+
+      if (result.success) {
+        toast({
+          title: "Success",
+          description: "Thread created successfully!",
+        })
+
+        // Use client-side navigation instead of server redirect
+        router.push(`/community/${result.categorySlug}/${result.threadId}`)
+      }
     } catch (err: any) {
       setError(err.message || "An error occurred while creating the thread")
       toast({
