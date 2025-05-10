@@ -24,7 +24,7 @@ type Thread = {
   is_pinned: boolean
 }
 
-export function ThreadList({ category: slug }: { category: string }) {
+export function ThreadList({ category }: { category: string }) {
   const [threads, setThreads] = useState<Thread[]>([])
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
@@ -106,7 +106,7 @@ export function ThreadList({ category: slug }: { category: string }) {
     }
 
     fetchThreads()
-  }, [slug, supabase])
+  }, [category, supabase])
 
   if (loading) {
     return <div className="text-center py-12">Loading threads...</div>
@@ -124,7 +124,7 @@ export function ThreadList({ category: slug }: { category: string }) {
   return (
     <div className="space-y-4">
       {threads.map((thread) => (
-        <Link key={thread.id} href={`/community/${slug}/${thread.id}`}>
+        <Link key={thread.id} href={`/community/${category}/${thread.id}`}>
           <Card className="hover:shadow-md transition-shadow">
             <CardHeader className="pb-2">
               <div className="flex justify-between items-start">

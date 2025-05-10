@@ -4,103 +4,69 @@ import { createClient } from "@/lib/supabase/server"
 import { revalidatePath } from "next/cache"
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
-import { v4 as uuidv4 } from "uuid"
 
-// Add the createConversation function that was missing
-export async function createConversation(otherUserId: string) {
+// Create a new conversation
+export async function createConversation(profileId: string) {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
 
   // Get the current user
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser()
-  if (!user) {
-    return { error: "Not authenticated" }
+
+  if (userError || !user) {
+    throw new Error("Unauthorized")
   }
 
   // Check if a conversation already exists between these users
-  const { data: userConversations } = await supabase
+  const { data: existingConversations, error: existingError } = await supabase
     .from("conversation_participants")
     .select("conversation_id")
     .eq("profile_id", user.id)
+    .in(
+      "conversation_id",
+      supabase.from("conversation_participants").select("conversation_id").eq("profile_id", profileId),
+    )
 
-  if (!userConversations || userConversations.length === 0) {
-    // No conversations yet, create a new one
-    return createNewConversation(user.id, otherUserId, supabase)
+  if (existingError) {
+    throw new Error("Failed to check existing conversations")
   }
 
-  const conversationIds = userConversations.map((c) => c.conversation_id)
-
-  // Check if the other user is in any of these conversations
-  const { data: otherUserParticipations } = await supabase
-    .from("conversation_participants")
-    .select("conversation_id")
-    .eq("profile_id", otherUserId)
-    .in("conversation_id", conversationIds)
-
-  if (otherUserParticipations && otherUserParticipations.length > 0) {
-    // Conversation already exists
-    return { conversationId: otherUserParticipations[0].conversation_id }
+  // If a conversation exists, redirect to it
+  if (existingConversations.length > 0) {
+    redirect(`/messages/${existingConversations[0].conversation_id}`)
   }
 
   // Create a new conversation
-  return createNewConversation(user.id, otherUserId, supabase)
-}
-
-// Helper function to create a new conversation
-async function createNewConversation(userId: string, otherUserId: string, supabase: any) {
-  // Create a new conversation
-  const conversationId = uuidv4()
-  const { error: conversationError } = await supabase.from("conversations").insert({ id: conversationId })
-
-  if (conversationError) {
-    return { error: "Failed to create conversation" }
-  }
-
-  // Add participants to the conversation
-  const { error: participantsError } = await supabase.from("conversation_participants").insert([
-    { conversation_id: conversationId, profile_id: userId },
-    { conversation_id: conversationId, profile_id: otherUserId },
-  ])
-
-  if (participantsError) {
-    return { error: "Failed to add participants" }
-  }
-
-  return { conversationId }
-}
-
-export async function startConversation(matchId: string) {
-  const cookieStore = cookies()
-  const supabase = createClient(cookieStore)
-
-  // Get the current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) {
-    return { error: "Not authenticated" }
-  }
-
-  // Get the match details to find both participants
-  const { data: match, error: matchError } = await supabase
-    .from("matches")
-    .select("user1_id, user2_id")
-    .eq("id", matchId)
+  const { data: conversation, error: conversationError } = await supabase
+    .from("conversations")
+    .insert({})
+    .select()
     .single()
 
-  if (matchError || !match) {
-    return { error: "Match not found" }
+  if (conversationError || !conversation) {
+    throw new Error("Failed to create conversation")
   }
 
-  // Determine the other user ID
-  const otherUserId = match.user1_id === user.id ? match.user2_id : match.user1_id
+  // Add participants
+  const participants = [
+    { conversation_id: conversation.id, profile_id: user.id },
+    { conversation_id: conversation.id, profile_id: profileId },
+  ]
 
-  // Use the createConversation function to handle the rest
-  return createConversation(otherUserId)
+  const { error: participantsError } = await supabase.from("conversation_participants").insert(participants)
+
+  if (participantsError) {
+    throw new Error("Failed to add participants")
+  }
+
+  revalidatePath("/messages")
+  redirect(`/messages/${conversation.id}`)
 }
 
+// Send a message
 export async function sendMessage(conversationId: string, content: string) {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
@@ -108,9 +74,11 @@ export async function sendMessage(conversationId: string, content: string) {
   // Get the current user
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser()
-  if (!user) {
-    return { error: "Not authenticated" }
+
+  if (userError || !user) {
+    throw new Error("Unauthorized")
   }
 
   // Check if the user is a participant in this conversation
@@ -122,7 +90,7 @@ export async function sendMessage(conversationId: string, content: string) {
     .single()
 
   if (participantError || !participant) {
-    return { error: "Not authorized to send messages in this conversation" }
+    throw new Error("You are not a participant in this conversation")
   }
 
   // Send the message
@@ -130,16 +98,18 @@ export async function sendMessage(conversationId: string, content: string) {
     conversation_id: conversationId,
     profile_id: user.id,
     content,
+    is_read: false,
   })
 
   if (messageError) {
-    return { error: "Failed to send message" }
+    throw new Error("Failed to send message")
   }
 
   revalidatePath(`/messages/${conversationId}`)
   return { success: true }
 }
 
+// Get conversations for the current user
 export async function getConversations() {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
@@ -147,9 +117,11 @@ export async function getConversations() {
   // Get the current user
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser()
-  if (!user) {
-    return { conversations: [] }
+
+  if (userError || !user) {
+    throw new Error("Unauthorized")
   }
 
   // Get all conversations where the user is a participant
@@ -158,133 +130,109 @@ export async function getConversations() {
     .select("conversation_id")
     .eq("profile_id", user.id)
 
-  if (participationsError || !participations.length) {
-    return { conversations: [] }
+  if (participationsError) {
+    throw new Error("Failed to fetch conversations")
+  }
+
+  if (participations.length === 0) {
+    return []
   }
 
   const conversationIds = participations.map((p) => p.conversation_id)
 
-  // Get the conversations with the latest message and other participant info
-  const { data: conversations, error: conversationsError } = await supabase
-    .from("conversations")
+  // Get the other participants in each conversation
+  const { data: otherParticipants, error: otherParticipantsError } = await supabase
+    .from("conversation_participants")
     .select(`
-      id,
-      created_at,
-      conversation_participants!inner(profile_id),
-      messages!inner(id, content, created_at, profile_id)
+      conversation_id,
+      profiles:profile_id (
+        id,
+        username,
+        full_name,
+        avatar_url,
+        current_mood
+      )
     `)
-    .in("id", conversationIds)
-    .order("created_at", { foreignTable: "messages", ascending: false })
+    .in("conversation_id", conversationIds)
+    .neq("profile_id", user.id)
 
-  if (conversationsError) {
-    return { conversations: [] }
+  if (otherParticipantsError) {
+    throw new Error("Failed to fetch conversation participants")
   }
 
-  // Get the other participants' profiles
-  const otherParticipantIds = conversations.flatMap((conv) =>
-    conv.conversation_participants.filter((p) => p.profile_id !== user.id).map((p) => p.profile_id),
-  )
+  // Get the latest message for each conversation
+  const { data: latestMessages, error: latestMessagesError } = await supabase
+    .from("messages")
+    .select("*")
+    .in("conversation_id", conversationIds)
+    .order("created_at", { ascending: false })
 
-  const { data: profiles, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, full_name, avatar_url")
-    .in("id", otherParticipantIds)
-
-  if (profilesError) {
-    return { conversations: [] }
+  if (latestMessagesError) {
+    throw new Error("Failed to fetch latest messages")
   }
 
-  // Format the conversations with the other participant's info
-  const formattedConversations = conversations.map((conv) => {
-    const otherParticipantId = conv.conversation_participants.find((p) => p.profile_id !== user.id)?.profile_id
+  // Get unread message counts
+  const { data: unreadCounts, error: unreadCountsError } = await supabase
+    .from("messages")
+    .select("conversation_id, count", { count: "exact" })
+    .in("conversation_id", conversationIds)
+    .eq("is_read", false)
+    .neq("profile_id", user.id)
+    .group("conversation_id")
 
-    const otherParticipant = profiles.find((p) => p.id === otherParticipantId)
+  if (unreadCountsError) {
+    throw new Error("Failed to fetch unread counts")
+  }
+
+  // Combine the data
+  const conversations = conversationIds.map((id) => {
+    const otherParticipant = otherParticipants.find((p) => p.conversation_id === id)?.profiles
+    const latestMessage = latestMessages.find((m) => m.conversation_id === id)
+    const unreadCount = unreadCounts.find((c) => c.conversation_id === id)?.count || 0
 
     return {
-      id: conv.id,
+      id,
       otherParticipant,
-      lastMessage: conv.messages[0],
-      created_at: conv.created_at,
+      latestMessage,
+      unreadCount,
     }
   })
 
-  return { conversations: formattedConversations }
+  // Sort by latest message
+  return conversations.sort((a, b) => {
+    if (!a.latestMessage) return 1
+    if (!b.latestMessage) return -1
+    return new Date(b.latestMessage.created_at).getTime() - new Date(a.latestMessage.created_at).getTime()
+  })
 }
 
-export async function getConversation(conversationId: string) {
+// Mark messages as read
+export async function markMessagesAsRead(conversationId: string) {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
 
   // Get the current user
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser()
-  if (!user) {
-    redirect("/login")
+
+  if (userError || !user) {
+    throw new Error("Unauthorized")
   }
 
-  // Check if the user is a participant in this conversation
-  const { data: participant, error: participantError } = await supabase
-    .from("conversation_participants")
-    .select()
-    .eq("conversation_id", conversationId)
-    .eq("profile_id", user.id)
-    .single()
-
-  if (participantError || !participant) {
-    redirect("/messages")
-  }
-
-  // Get the other participant
-  const { data: otherParticipant, error: otherParticipantError } = await supabase
-    .from("conversation_participants")
-    .select("profile_id")
+  // Mark all messages in the conversation as read
+  const { error: updateError } = await supabase
+    .from("messages")
+    .update({ is_read: true })
     .eq("conversation_id", conversationId)
     .neq("profile_id", user.id)
-    .single()
+    .eq("is_read", false)
 
-  if (otherParticipantError) {
-    redirect("/messages")
+  if (updateError) {
+    throw new Error("Failed to mark messages as read")
   }
 
-  // Get the other participant's profile
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("id, full_name, avatar_url")
-    .eq("id", otherParticipant.profile_id)
-    .single()
-
-  if (profileError) {
-    redirect("/messages")
-  }
-
-  // Get the messages
-  const { data: messages, error: messagesError } = await supabase
-    .from("messages")
-    .select(`
-      id,
-      content,
-      created_at,
-      profile_id,
-      is_read
-    `)
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-
-  if (messagesError) {
-    return { conversation: null, messages: [], otherParticipant: profile }
-  }
-
-  // Mark unread messages as read
-  const unreadMessages = messages.filter((m) => m.profile_id !== user.id && !m.is_read).map((m) => m.id)
-
-  if (unreadMessages.length > 0) {
-    await supabase.from("messages").update({ is_read: true }).in("id", unreadMessages)
-  }
-
-  return {
-    conversation: { id: conversationId },
-    messages,
-    otherParticipant: profile,
-  }
+  revalidatePath(`/messages/${conversationId}`)
+  return { success: true }
 }

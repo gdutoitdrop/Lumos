@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button"
 import { Plus } from "lucide-react"
 import Link from "next/link"
 
-export default function CategoryPage({ params }: { params: { slug: string } }) {
-  const categoryName = params.slug.charAt(0).toUpperCase() + params.slug.slice(1).replace(/-/g, " ")
+export default function CategoryPage({ params }: { params: { category: string } }) {
+  const categoryName = params.category.charAt(0).toUpperCase() + params.category.slice(1).replace(/-/g, " ")
 
   return (
     <DashboardLayout>
@@ -16,12 +16,12 @@ export default function CategoryPage({ params }: { params: { slug: string } }) {
             <p className="text-slate-600 dark:text-slate-300">Discussions related to {categoryName.toLowerCase()}</p>
           </div>
           <Button className="bg-gradient-to-r from-rose-500 to-amber-500 text-white" asChild>
-            <Link href={`/community/${params.slug}/new`}>
+            <Link href={`/community/${params.category}/new`}>
               <Plus className="mr-2 h-4 w-4" /> New Thread
             </Link>
           </Button>
         </div>
-        <ThreadList category={params.slug} />
+        <ThreadList category={params.category} />
       </div>
     </DashboardLayout>
   )
