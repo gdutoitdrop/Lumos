@@ -6,6 +6,71 @@ import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
 import { v4 as uuidv4 } from "uuid"
 
+// Add the missing createConversation export
+export async function createConversation(profileId: string) {
+  const cookieStore = cookies()
+  const supabase = createClient(cookieStore)
+
+  // Get the current user
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return { error: "Not authenticated" }
+  }
+
+  // Check if a conversation already exists between these users
+  const { data: userConversations } = await supabase
+    .from("conversation_participants")
+    .select("conversation_id")
+    .eq("profile_id", user.id)
+
+  if (!userConversations || userConversations.length === 0) {
+    // No conversations yet, create a new one
+    return createNewConversation(user.id, profileId, supabase)
+  }
+
+  const conversationIds = userConversations.map((c) => c.conversation_id)
+
+  // Check if the other user is in any of these conversations
+  const { data: otherUserParticipations } = await supabase
+    .from("conversation_participants")
+    .select("conversation_id")
+    .eq("profile_id", profileId)
+    .in("conversation_id", conversationIds)
+
+  if (otherUserParticipations && otherUserParticipations.length > 0) {
+    // Conversation already exists
+    return { conversationId: otherUserParticipations[0].conversation_id }
+  }
+
+  // Create a new conversation
+  return createNewConversation(user.id, profileId, supabase)
+}
+
+// Helper function to create a new conversation
+async function createNewConversation(userId: string, otherUserId: string, supabase: any) {
+  // Create a new conversation
+  const conversationId = uuidv4()
+  const { error: conversationError } = await supabase.from("conversations").insert({ id: conversationId })
+
+  if (conversationError) {
+    return { error: "Failed to create conversation" }
+  }
+
+  // Add participants to the conversation
+  const { error: participantsError } = await supabase.from("conversation_participants").insert([
+    { conversation_id: conversationId, profile_id: userId },
+    { conversation_id: conversationId, profile_id: otherUserId },
+  ])
+
+  if (participantsError) {
+    return { error: "Failed to add participants" }
+  }
+
+  return { conversationId }
+}
+
 export async function startConversation(matchId: string) {
   const cookieStore = cookies()
   const supabase = createClient(cookieStore)
