@@ -1,0 +1,418 @@
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+
+export interface Database {
+  public: {
+    Tables: {
+      profiles: {
+        Row: {
+          id: string
+          username: string | null
+          full_name: string | null
+          avatar_url: string | null
+          bio: string | null
+          mental_health_badges: string[] | null
+          current_mood: string | null
+          looking_for: string | null
+          mental_health_journey: string | null
+          gender: string | null
+          role: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id: string
+          username?: string | null
+          full_name?: string | null
+          avatar_url?: string | null
+          bio?: string | null
+          mental_health_badges?: string[] | null
+          current_mood?: string | null
+          looking_for?: string | null
+          mental_health_journey?: string | null
+          gender?: string | null
+          role?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          username?: string | null
+          full_name?: string | null
+          avatar_url?: string | null
+          bio?: string | null
+          mental_health_badges?: string[] | null
+          current_mood?: string | null
+          looking_for?: string | null
+          mental_health_journey?: string | null
+          gender?: string | null
+          role?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      conversations: {
+        Row: {
+          id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          created_at?: string
+        }
+      }
+      conversation_participants: {
+        Row: {
+          conversation_id: string
+          profile_id: string
+        }
+        Insert: {
+          conversation_id: string
+          profile_id: string
+        }
+        Update: {
+          conversation_id?: string
+          profile_id?: string
+        }
+      }
+      messages: {
+        Row: {
+          id: string
+          conversation_id: string
+          profile_id: string
+          content: string
+          created_at: string
+          is_read: boolean
+        }
+        Insert: {
+          id?: string
+          conversation_id: string
+          profile_id: string
+          content: string
+          created_at?: string
+          is_read?: boolean
+        }
+        Update: {
+          id?: string
+          conversation_id?: string
+          profile_id?: string
+          content?: string
+          created_at?: string
+          is_read?: boolean
+        }
+      }
+      user_preferences: {
+        Row: {
+          profile_id: string
+          age_min: number | null
+          age_max: number | null
+          connection_type: string | null
+          preferred_badges: string[] | null
+          preferred_genders: string[] | null
+          location: string | null
+          max_distance: number | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          profile_id: string
+          age_min?: number | null
+          age_max?: number | null
+          connection_type?: string | null
+          preferred_badges?: string[] | null
+          preferred_genders?: string[] | null
+          location?: string | null
+          max_distance?: number | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          profile_id?: string
+          age_min?: number | null
+          age_max?: number | null
+          connection_type?: string | null
+          preferred_badges?: string[] | null
+          preferred_genders?: string[] | null
+          location?: string | null
+          max_distance?: number | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      matches: {
+        Row: {
+          id: string
+          profile_id_1: string
+          profile_id_2: string
+          match_score: number
+          status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          profile_id_1: string
+          profile_id_2: string
+          match_score: number
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          profile_id_1?: string
+          profile_id_2?: string
+          match_score?: number
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      forum_categories: {
+        Row: {
+          id: string
+          name: string
+          slug: string
+          description: string | null
+          icon: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          slug: string
+          description?: string | null
+          icon?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          slug?: string
+          description?: string | null
+          icon?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      forum_threads: {
+        Row: {
+          id: string
+          category_id: string
+          profile_id: string
+          title: string
+          content: string
+          is_pinned: boolean
+          is_locked: boolean
+          view_count: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          category_id: string
+          profile_id: string
+          title: string
+          content: string
+          is_pinned?: boolean
+          is_locked?: boolean
+          view_count?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          category_id?: string
+          profile_id?: string
+          title?: string
+          content?: string
+          is_pinned?: boolean
+          is_locked?: boolean
+          view_count?: number
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      forum_replies: {
+        Row: {
+          id: string
+          thread_id: string
+          profile_id: string
+          content: string
+          is_solution: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          thread_id: string
+          profile_id: string
+          content: string
+          is_solution?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          thread_id?: string
+          profile_id?: string
+          content?: string
+          is_solution?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      forum_likes: {
+        Row: {
+          id: string
+          profile_id: string
+          thread_id: string | null
+          reply_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          profile_id: string
+          thread_id?: string | null
+          reply_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          profile_id?: string
+          thread_id?: string | null
+          reply_id?: string | null
+          created_at?: string
+        }
+      }
+      forum_reports: {
+        Row: {
+          id: string
+          reporter_id: string
+          thread_id: string | null
+          reply_id: string | null
+          reason: string
+          status: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          reporter_id: string
+          thread_id?: string | null
+          reply_id?: string | null
+          reason: string
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          reporter_id?: string
+          thread_id?: string | null
+          reply_id?: string | null
+          reason?: string
+          status?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      subscriptions: {
+        Row: {
+          id: string
+          profile_id: string
+          stripe_customer_id: string
+          stripe_subscription_id: string
+          plan_type: string
+          status: string
+          current_period_start: string
+          current_period_end: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          profile_id: string
+          stripe_customer_id: string
+          stripe_subscription_id: string
+          plan_type: string
+          status: string
+          current_period_start: string
+          current_period_end: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          profile_id?: string
+          stripe_customer_id?: string
+          stripe_subscription_id?: string
+          plan_type?: string
+          status?: string
+          current_period_start?: string
+          current_period_end?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      email_notifications: {
+        Row: {
+          id: string
+          profile_id: string
+          type: string
+          data: Json
+          is_sent: boolean
+          created_at: string
+          sent_at: string | null
+        }
+        Insert: {
+          id?: string
+          profile_id: string
+          type: string
+          data: Json
+          is_sent?: boolean
+          created_at?: string
+          sent_at?: string | null
+        }
+        Update: {
+          id?: string
+          profile_id?: string
+          type?: string
+          data?: Json
+          is_sent?: boolean
+          created_at?: string
+          sent_at?: string | null
+        }
+      }
+    }
+    Views: {
+      forum_thread_stats: {
+        Row: {
+          thread_id: string
+          reply_count: number
+          like_count: number
+          last_activity: string | null
+        }
+      }
+      forum_category_stats: {
+        Row: {
+          category_id: string
+          thread_count: number
+          reply_count: number
+          last_activity: string | null
+        }
+      }
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+  }
+}
