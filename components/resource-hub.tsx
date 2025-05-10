@@ -85,7 +85,7 @@ export function ResourceHub() {
           icon={<FileText className="h-6 w-6 text-slate-500" />}
           title="Mood Tracker Template"
           description="A downloadable template to track your moods and identify patterns."
-          link="#"
+          link="https://docs.google.com/spreadsheets/d/1sAHl5DXdcQmyqO2tKaqmzTo1UwnGoUbpu7qsDM_QBkc/edit?usp=sharing"
         />
         <ResourceCard
           icon={<FileText className="h-6 w-6 text-slate-500" />}
