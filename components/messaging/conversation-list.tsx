@@ -1,87 +1,140 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Button } from "@/components/ui/button"
+import type { Database } from "@/lib/database.types"
+import { createClient } from "@/lib/supabase/client"
+import { formatDistanceToNow } from "date-fns"
+import { PlusCircle } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Skeleton } from "@/components/ui/skeleton"
-import { useAuth } from "@/components/auth/auth-provider"
-import { getConversations } from "@/actions/messaging"
-import { realtimeManager } from "@/lib/supabase/realtime"
-import { createClient } from "@/lib/supabase/client"
+import { useEffect, useState } from "react"
 
-type Conversation = Awaited<ReturnType<typeof getConversations>>[0]
+type Profile = Database["public"]["Tables"]["profiles"]["Row"]
+type Message = Database["public"]["Tables"]["messages"]["Row"]
+
+interface Conversation {
+  id: string
+  otherParticipant: Pick<Profile, "id" | "full_name" | "avatar_url"> | null
+  lastMessage: Message | null
+  created_at: string
+}
 
 export function ConversationList() {
-  const { user } = useAuth()
-  const pathname = usePathname()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
+  const pathname = usePathname()
   const supabase = createClient()
 
   useEffect(() => {
-    const fetchConversations = async () => {
+    async function loadConversations() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
       if (!user) return
 
-      try {
-        const data = await getConversations()
-        setConversations(data)
-      } catch (error) {
-        console.error("Error fetching conversations:", error)
-      } finally {
+      // Get all conversations where the user is a participant
+      const { data: participations, error: participationsError } = await supabase
+        .from("conversation_participants")
+        .select("conversation_id")
+        .eq("profile_id", user.id)
+
+      if (participationsError || !participations.length) {
         setLoading(false)
+        return
       }
+
+      const conversationIds = participations.map((p) => p.conversation_id)
+
+      // For each conversation, get the other participant and the latest message
+      const conversationsWithData = await Promise.all(
+        conversationIds.map(async (conversationId) => {
+          // Get the other participant
+          const { data: otherParticipant } = await supabase
+            .from("conversation_participants")
+            .select("profile_id")
+            .eq("conversation_id", conversationId)
+            .neq("profile_id", user.id)
+            .single()
+
+          if (!otherParticipant) return null
+
+          // Get the other participant's profile
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("id, full_name, avatar_url")
+            .eq("id", otherParticipant.profile_id)
+            .single()
+
+          // Get the latest message
+          const { data: messages } = await supabase
+            .from("messages")
+            .select("*")
+            .eq("conversation_id", conversationId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+
+          // Get the conversation
+          const { data: conversation } = await supabase
+            .from("conversations")
+            .select("created_at")
+            .eq("id", conversationId)
+            .single()
+
+          return {
+            id: conversationId,
+            otherParticipant: profile,
+            lastMessage: messages && messages.length > 0 ? messages[0] : null,
+            created_at: conversation?.created_at || new Date().toISOString(),
+          }
+        }),
+      )
+
+      // Filter out null values and sort by latest message or creation date
+      const validConversations = conversationsWithData
+        .filter((c): c is Conversation => c !== null)
+        .sort((a, b) => {
+          const dateA = a.lastMessage?.created_at || a.created_at
+          const dateB = b.lastMessage?.created_at || b.created_at
+          return new Date(dateB).getTime() - new Date(dateA).getTime()
+        })
+
+      setConversations(validConversations)
+      setLoading(false)
     }
 
-    fetchConversations()
+    loadConversations()
 
-    // Subscribe to new conversations
-    if (user) {
-      const unsubscribe = realtimeManager.subscribeToConversations(user.id, async (payload) => {
-        // Refresh the conversations list
-        const data = await getConversations()
-        setConversations(data)
-      })
+    // Subscribe to new messages to update the conversation list
+    const channel = supabase
+      .channel("new_messages")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+        },
+        () => {
+          loadConversations()
+        },
+      )
+      .subscribe()
 
-      return () => {
-        unsubscribe()
-      }
+    return () => {
+      supabase.removeChannel(channel)
     }
-  }, [user])
-
-  // Format the timestamp
-  const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diffInDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24))
-
-    if (diffInDays === 0) {
-      // Today, show time
-      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    } else if (diffInDays === 1) {
-      // Yesterday
-      return "Yesterday"
-    } else if (diffInDays < 7) {
-      // This week, show day name
-      return date.toLocaleDateString([], { weekday: "short" })
-    } else {
-      // Older, show date
-      return date.toLocaleDateString([], { month: "short", day: "numeric" })
-    }
-  }
+  }, [supabase])
 
   if (loading) {
     return (
-      <div className="h-full p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">Messages</h2>
-        </div>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="flex items-center space-x-4 p-3">
-            <Skeleton className="h-12 w-12 rounded-full" />
+      <div className="space-y-2">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="flex items-center p-3 animate-pulse">
+            <div className="h-10 w-10 rounded-full bg-muted mr-3"></div>
             <div className="space-y-2 flex-1">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-3 w-1/2" />
+              <div className="h-4 w-1/3 bg-muted rounded"></div>
+              <div className="h-3 w-1/2 bg-muted rounded"></div>
             </div>
           </div>
         ))}
@@ -89,70 +142,54 @@ export function ConversationList() {
     )
   }
 
-  return (
-    <div className="h-full flex flex-col">
-      <div className="p-4 border-b border-slate-200 dark:border-slate-700">
-        <h2 className="text-xl font-bold">Messages</h2>
+  if (conversations.length === 0) {
+    return (
+      <div className="p-4 text-center">
+        <p className="text-muted-foreground mb-4">No conversations yet</p>
+        <Button asChild>
+          <Link href="/matching">
+            <PlusCircle className="mr-2 h-4 w-4" />
+            Find matches
+          </Link>
+        </Button>
       </div>
-      <div className="flex-1 overflow-y-auto">
-        {conversations.length === 0 ? (
-          <div className="p-4 text-center text-slate-500 dark:text-slate-400">
-            <p>No conversations yet</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-slate-200 dark:divide-slate-700">
-            {conversations.map((conversation) => {
-              const isActive = pathname === `/messages/${conversation.id}`
-              const participant = conversation.otherParticipant
-              const latestMessage = conversation.latestMessage
-              const hasUnread = conversation.unreadCount > 0
+    )
+  }
 
-              return (
-                <Link
-                  key={conversation.id}
-                  href={`/messages/${conversation.id}`}
-                  className={`block p-4 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ${
-                    isActive ? "bg-slate-100 dark:bg-slate-800" : ""
-                  }`}
-                >
-                  <div className="flex items-start space-x-3">
-                    <Avatar className="h-10 w-10">
-                      <AvatarImage src={participant?.avatar_url || ""} alt={participant?.username || ""} />
-                      <AvatarFallback>{participant?.username?.charAt(0) || "U"}</AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <h3 className="font-medium truncate">{participant?.full_name || participant?.username}</h3>
-                        {latestMessage && (
-                          <span className="text-xs text-slate-500 dark:text-slate-400">
-                            {formatTime(latestMessage.created_at)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center justify-between mt-1">
-                        <p
-                          className={`text-sm truncate ${
-                            hasUnread
-                              ? "text-slate-900 dark:text-slate-100 font-medium"
-                              : "text-slate-500 dark:text-slate-400"
-                          }`}
-                        >
-                          {latestMessage?.content || "No messages yet"}
-                        </p>
-                        {hasUnread && (
-                          <span className="ml-2 flex-shrink-0 h-5 w-5 bg-rose-500 text-white rounded-full flex items-center justify-center text-xs">
-                            {conversation.unreadCount}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              )
-            })}
+  return (
+    <div className="space-y-1">
+      {conversations.map((conversation) => (
+        <Link
+          key={conversation.id}
+          href={`/messages/${conversation.id}`}
+          className={`flex items-center p-3 rounded-lg hover:bg-muted transition-colors ${
+            pathname === `/messages/${conversation.id}` ? "bg-muted" : ""
+          }`}
+        >
+          <Avatar className="h-10 w-10 mr-3">
+            <AvatarImage
+              src={conversation.otherParticipant?.avatar_url || undefined}
+              alt={conversation.otherParticipant?.full_name || "User"}
+            />
+            <AvatarFallback>{conversation.otherParticipant?.full_name?.substring(0, 2) || "U"}</AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <div className="flex justify-between items-baseline">
+              <h3 className="font-medium truncate">{conversation.otherParticipant?.full_name || "Unknown User"}</h3>
+              {conversation.lastMessage && (
+                <span className="text-xs text-muted-foreground">
+                  {formatDistanceToNow(new Date(conversation.lastMessage.created_at), {
+                    addSuffix: true,
+                  })}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground truncate">
+              {conversation.lastMessage ? conversation.lastMessage.content : "Start a conversation"}
+            </p>
           </div>
-        )}
-      </div>
+        </Link>
+      ))}
     </div>
   )
 }

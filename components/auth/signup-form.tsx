@@ -160,6 +160,3 @@ export function SignupForm() {
     </Card>
   )
 }
-
-// Add the SignUpForm export to fix the capitalization issue
-export { SignupForm as SignUpForm }

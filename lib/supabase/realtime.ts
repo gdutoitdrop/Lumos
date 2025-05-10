@@ -1,32 +1,16 @@
+"use client"
+
 import { createClient } from "@/lib/supabase/client"
+import { useEffect, useState } from "react"
 
-type RealtimeChannel = ReturnType<ReturnType<typeof createClient>["channel"]>
+export function useRealtimeMessages(conversationId: string, callback: (message: any) => void) {
+  const supabase = createClient()
+  const [subscription, setSubscription] = useState<ReturnType<typeof supabase.channel> | null>(null)
 
-// Singleton pattern to manage Supabase realtime channels
-export class RealtimeManager {
-  private static instance: RealtimeManager
-  private channels: Map<string, RealtimeChannel> = new Map()
-  private supabase = createClient()
-
-  private constructor() {}
-
-  public static getInstance(): RealtimeManager {
-    if (!RealtimeManager.instance) {
-      RealtimeManager.instance = new RealtimeManager()
-    }
-    return RealtimeManager.instance
-  }
-
-  // Subscribe to messages in a conversation
-  public subscribeToMessages(conversationId: string, callback: (payload: any) => void): () => void {
-    const channelKey = `messages:${conversationId}`
-
-    if (this.channels.has(channelKey)) {
-      return () => this.unsubscribe(channelKey)
-    }
-
-    const channel = this.supabase
-      .channel(channelKey)
+  useEffect(() => {
+    // Create a channel for this conversation
+    const channel = supabase
+      .channel(`messages:${conversationId}`)
       .on(
         "postgres_changes",
         {
@@ -35,58 +19,64 @@ export class RealtimeManager {
           table: "messages",
           filter: `conversation_id=eq.${conversationId}`,
         },
-        callback,
-      )
-      .subscribe()
-
-    this.channels.set(channelKey, channel)
-
-    return () => this.unsubscribe(channelKey)
-  }
-
-  // Subscribe to new conversations
-  public subscribeToConversations(profileId: string, callback: (payload: any) => void): () => void {
-    const channelKey = `conversations:${profileId}`
-
-    if (this.channels.has(channelKey)) {
-      return () => this.unsubscribe(channelKey)
-    }
-
-    const channel = this.supabase
-      .channel(channelKey)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "conversation_participants",
-          filter: `profile_id=eq.${profileId}`,
+        (payload) => {
+          callback(payload.new)
         },
-        callback,
       )
       .subscribe()
 
-    this.channels.set(channelKey, channel)
+    setSubscription(channel)
 
-    return () => this.unsubscribe(channelKey)
-  }
-
-  // Unsubscribe from a channel
-  private unsubscribe(channelKey: string): void {
-    const channel = this.channels.get(channelKey)
-    if (channel) {
-      this.supabase.removeChannel(channel)
-      this.channels.delete(channelKey)
+    return () => {
+      if (channel) {
+        supabase.removeChannel(channel)
+      }
     }
-  }
+  }, [conversationId, callback, supabase])
 
-  // Unsubscribe from all channels
-  public unsubscribeAll(): void {
-    this.channels.forEach((channel) => {
-      this.supabase.removeChannel(channel)
-    })
-    this.channels.clear()
-  }
+  return subscription
 }
 
-export const realtimeManager = RealtimeManager.getInstance()
+export function useRealtimePresence(conversationId: string) {
+  const supabase = createClient()
+  const [presence, setPresence] = useState<Record<string, any>>({})
+  const [subscription, setSubscription] = useState<ReturnType<typeof supabase.channel> | null>(null)
+
+  useEffect(() => {
+    // Get current user
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+
+      // Create a channel for presence
+      const channel = supabase
+        .channel(`presence:${conversationId}`)
+        .on("presence", { event: "sync" }, () => {
+          const state = channel.presenceState()
+          setPresence(state)
+        })
+        .on("presence", { event: "join" }, ({ key, newPresences }) => {
+          console.log("User joined:", key, newPresences)
+        })
+        .on("presence", { event: "leave" }, ({ key, leftPresences }) => {
+          console.log("User left:", key, leftPresences)
+        })
+
+      // Track user presence
+      channel.track({
+        user_id: user.id,
+        online_at: new Date().toISOString(),
+      })
+
+      channel.subscribe()
+      setSubscription(channel)
+    })
+
+    return () => {
+      if (subscription) {
+        supabase.removeChannel(subscription)
+      }
+    }
+  }, [conversationId, supabase])
+
+  return presence
+}

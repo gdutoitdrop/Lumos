@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Button } from "@/components/ui/button"
@@ -12,10 +12,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Progress } from "@/components/ui/progress"
-import { X, Upload, Camera, User } from "lucide-react"
+import { X } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { AvatarUpload } from "@/components/profile/avatar-upload"
 import type { Database } from "@/lib/database.types"
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"] & {
@@ -70,7 +70,6 @@ export function ProfileForm() {
   const { user } = useAuth()
   const router = useRouter()
   const supabase = createClient()
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [profile, setProfile] = useState<Partial<Profile>>({
     username: "",
@@ -88,7 +87,6 @@ export function ProfileForm() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [selectedBadge, setSelectedBadge] = useState("")
-  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [completionPercentage, setCompletionPercentage] = useState(0)
 
   useEffect(() => {
@@ -192,37 +190,11 @@ export function ProfileForm() {
     })
   }
 
-  const handleAvatarClick = () => {
-    fileInputRef.current?.click()
-  }
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !user) return
-
-    setUploadingAvatar(true)
-    setError(null)
-
-    try {
-      // In a real implementation, you would upload the file to Supabase Storage
-      // For now, we'll simulate a successful upload with a placeholder
-
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 1500))
-
-      // Set a placeholder URL
-      const avatarUrl = `/placeholder.svg?height=200&width=200&text=${encodeURIComponent(profile.username || "User")}`
-
-      setProfile({
-        ...profile,
-        avatar_url: avatarUrl,
-      })
-    } catch (err: any) {
-      setError("Failed to upload avatar: " + err.message)
-      console.error(err)
-    } finally {
-      setUploadingAvatar(false)
-    }
+  const handleAvatarUploadComplete = (url: string) => {
+    setProfile({
+      ...profile,
+      avatar_url: url,
+    })
   }
 
   return (
@@ -261,46 +233,14 @@ export function ProfileForm() {
           )}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="flex flex-col items-center mb-6">
-              <div className="relative mb-4">
-                <Avatar className="h-24 w-24 cursor-pointer" onClick={handleAvatarClick}>
-                  {profile.avatar_url ? (
-                    <AvatarImage src={profile.avatar_url || "/placeholder.svg"} alt={profile.username || ""} />
-                  ) : (
-                    <AvatarFallback className="bg-rose-100 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300">
-                      {profile.username?.charAt(0) || <User className="h-12 w-12" />}
-                    </AvatarFallback>
-                  )}
-                  <div className="absolute bottom-0 right-0 bg-rose-500 text-white rounded-full p-1 shadow-md">
-                    <Camera className="h-4 w-4" />
-                  </div>
-                </Avatar>
-                <input
-                  type="file"
-                  ref={fileInputRef}
-                  className="hidden"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  disabled={uploadingAvatar}
+              {user && (
+                <AvatarUpload
+                  userId={user.id}
+                  avatarUrl={profile.avatar_url || null}
+                  username={profile.username || undefined}
+                  onUploadComplete={handleAvatarUploadComplete}
                 />
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleAvatarClick}
-                disabled={uploadingAvatar}
-                className="text-xs"
-              >
-                {uploadingAvatar ? (
-                  "Uploading..."
-                ) : profile.avatar_url ? (
-                  <>Change Photo</>
-                ) : (
-                  <>
-                    <Upload className="mr-2 h-3 w-3" /> Upload Photo
-                  </>
-                )}
-              </Button>
+              )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

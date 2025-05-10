@@ -3,7 +3,6 @@
 import type React from "react"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -11,7 +10,9 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useAuth } from "@/components/auth/auth-provider"
-import { createClient } from "@/lib/supabase/client"
+import { createThread } from "@/actions/forum"
+import { useToast } from "@/components/ui/use-toast"
+import Link from "next/link"
 
 export function NewThreadForm({ category }: { category: string }) {
   const [title, setTitle] = useState("")
@@ -19,8 +20,7 @@ export function NewThreadForm({ category }: { category: string }) {
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const { user } = useAuth()
-  const router = useRouter()
-  const supabase = createClient()
+  const { toast } = useToast()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,16 +30,19 @@ export function NewThreadForm({ category }: { category: string }) {
     setSubmitting(true)
 
     try {
-      // In a real implementation, you would save this to the database
-      // For now, we'll just simulate a successful submission
+      const formData = new FormData()
+      formData.append("title", title)
+      formData.append("content", content)
+      formData.append("category", category)
 
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-
-      // Redirect to the category page
-      router.push(`/community/${category}`)
+      await createThread(formData)
     } catch (err: any) {
       setError(err.message || "An error occurred while creating the thread")
+      toast({
+        title: "Error",
+        description: err.message || "Failed to create thread. Please try again.",
+        variant: "destructive",
+      })
       console.error(err)
     } finally {
       setSubmitting(false)
@@ -52,7 +55,7 @@ export function NewThreadForm({ category }: { category: string }) {
         <CardContent className="py-6 text-center">
           <p className="mb-4">You need to be logged in to create a new thread.</p>
           <Button asChild>
-            <a href="/login">Log In</a>
+            <Link href="/login">Log In</Link>
           </Button>
         </CardContent>
       </Card>
