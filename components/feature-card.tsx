@@ -1,21 +1,40 @@
-import type { ReactNode } from "react"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Heart, Users, LineChart, BookOpen, MessageCircle, Shield } from "lucide-react"
 
 interface FeatureCardProps {
-  icon: ReactNode
+  icon: string
   title: string
   description: string
 }
 
 export function FeatureCard({ icon, title, description }: FeatureCardProps) {
+  const getIcon = (iconName: string) => {
+    switch (iconName) {
+      case "Heart":
+        return <Heart className="h-8 w-8 text-rose-500" />
+      case "Users":
+        return <Users className="h-8 w-8 text-blue-500" />
+      case "LineChart":
+        return <LineChart className="h-8 w-8 text-green-500" />
+      case "BookOpen":
+        return <BookOpen className="h-8 w-8 text-purple-500" />
+      case "MessageCircle":
+        return <MessageCircle className="h-8 w-8 text-amber-500" />
+      case "Shield":
+        return <Shield className="h-8 w-8 text-slate-500" />
+      default:
+        return <Heart className="h-8 w-8 text-rose-500" />
+    }
+  }
+
   return (
-    <Card className="border border-slate-200 dark:border-slate-700 shadow-sm hover:shadow-md transition-shadow duration-300">
-      <CardHeader className="pb-2">
-        <div className="mb-2">{icon}</div>
-        <h3 className="text-xl font-semibold">{title}</h3>
+    <Card className="hover:shadow-lg transition-shadow">
+      <CardHeader className="text-center">
+        <div className="mx-auto mb-4">{getIcon(icon)}</div>
+        <CardTitle className="text-xl">{title}</CardTitle>
       </CardHeader>
       <CardContent>
-        <p className="text-slate-600 dark:text-slate-300">{description}</p>
+        <CardDescription className="text-center">{description}</CardDescription>
       </CardContent>
     </Card>
   )
