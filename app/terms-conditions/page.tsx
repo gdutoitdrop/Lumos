@@ -1,121 +1,152 @@
-import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 export default function TermsConditionsPage() {
   return (
-    <DashboardLayout>
-      <div className="container mx-auto py-12 px-4">
-        <h1 className="text-4xl font-bold mb-8">Terms and Conditions</h1>
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-12 max-w-4xl">
+        <div className="text-center mb-12">
+          <h1 className="text-4xl font-bold mb-4">Terms & Conditions</h1>
+          <p className="text-muted-foreground">Last updated: {new Date().toLocaleDateString()}</p>
+        </div>
 
-        <div className="prose dark:prose-invert max-w-none">
-          <p className="lead">Last updated: June 4, 2023</p>
+        <div className="space-y-8">
+          <Card>
+            <CardHeader>
+              <CardTitle>Acceptance of Terms</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground">
+                By accessing and using Lumos, you accept and agree to be bound by the terms and provision of this
+                agreement. If you do not agree to abide by the above, please do not use this service.
+              </p>
+            </CardContent>
+          </Card>
 
-          <h2>1. Introduction</h2>
-          <p>
-            These terms and conditions ("Terms") govern your use of the Lumos platform, website, and services
-            (collectively, the "Service"). By accessing or using the Service, you agree to be bound by these Terms. If
-            you disagree with any part of the Terms, you may not access the Service.
-          </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Platform Purpose</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground">
+                Lumos is designed to create meaningful connections for individuals navigating mental health challenges.
+                Our platform facilitates both romantic connections (Date Mode) and friendships (Connect Mode) in a safe,
+                supportive environment that prioritizes mental wellbeing.
+              </p>
+            </CardContent>
+          </Card>
 
-          <h2>2. Accounts</h2>
-          <p>
-            When you create an account with us, you must provide information that is accurate, complete, and current at
-            all times. Failure to do so constitutes a breach of the Terms, which may result in immediate termination of
-            your account on our Service.
-          </p>
-          <p>
-            You are responsible for safeguarding the password that you use to access the Service and for any activities
-            or actions under your password, whether your password is with our Service or a third-party service.
-          </p>
-          <p>
-            You agree not to disclose your password to any third party. You must notify us immediately upon becoming
-            aware of any breach of security or unauthorized use of your account.
-          </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>User Responsibilities</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold mb-2">Account Security</h3>
+                  <p className="text-muted-foreground">
+                    You are responsible for maintaining the confidentiality of your account and password and for
+                    restricting access to your computer.
+                  </p>
+                </div>
+                <div>
+                  <h3 className="font-semibold mb-2">Truthful Information</h3>
+                  <p className="text-muted-foreground">
+                    You agree to provide accurate, current, and complete information about yourself as prompted by our
+                    registration forms.
+                  </p>
+                </div>
+                <div>
+                  <h3 className="font-semibold mb-2">Respectful Behavior</h3>
+                  <p className="text-muted-foreground">
+                    You agree to treat all users with respect, empathy, and understanding, especially regarding mental
+                    health topics.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-          <h2>3. Content</h2>
-          <p>
-            Our Service allows you to post, link, store, share and otherwise make available certain information, text,
-            graphics, videos, or other material ("Content"). You are responsible for the Content that you post on or
-            through the Service, including its legality, reliability, and appropriateness.
-          </p>
-          <p>
-            By posting Content on or through the Service, you represent and warrant that: (i) the Content is yours (you
-            own it) or you have the right to use it and grant us the rights and license as provided in these Terms, and
-            (ii) the posting of your Content on or through the Service does not violate the privacy rights, publicity
-            rights, copyrights, contract rights or any other rights of any person.
-          </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Prohibited Activities</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground mb-4">The following activities are strictly prohibited:</p>
+              <ul className="list-disc list-inside space-y-2 text-muted-foreground">
+                <li>Harassment, bullying, or discrimination of any kind</li>
+                <li>Sharing false or misleading information about mental health</li>
+                <li>Attempting to provide professional medical or therapeutic advice</li>
+                <li>Sharing explicit or inappropriate content</li>
+                <li>Creating fake profiles or impersonating others</li>
+                <li>Spamming or soliciting other users</li>
+                <li>Violating any applicable laws or regulations</li>
+              </ul>
+            </CardContent>
+          </Card>
 
-          <h2>4. Prohibited Uses</h2>
-          <p>
-            You may use the Service only for lawful purposes and in accordance with these Terms. You agree not to use
-            the Service:
-          </p>
-          <ul>
-            <li>In any way that violates any applicable national or international law or regulation.</li>
-            <li>
-              For the purpose of exploiting, harming, or attempting to exploit or harm minors in any way by exposing
-              them to inappropriate content, asking for personally identifiable information, or otherwise.
-            </li>
-            <li>
-              To transmit, or procure the sending of, any advertising or promotional material, including any "junk
-              mail," "chain letter," "spam," or any other similar solicitation.
-            </li>
-            <li>
-              To impersonate or attempt to impersonate the Company, a Company employee, another user, or any other
-              person or entity.
-            </li>
-            <li>
-              In any way that infringes upon the rights of others, or in any way is illegal, threatening, fraudulent, or
-              harmful, or in connection with any unlawful, illegal, fraudulent, or harmful purpose or activity.
-            </li>
-          </ul>
+          <Card>
+            <CardHeader>
+              <CardTitle>Mental Health Disclaimer</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-amber-50 dark:bg-amber-950/20 p-4 rounded-lg">
+                <p className="text-muted-foreground">
+                  <strong>Important:</strong> Lumos is not a substitute for professional mental health care. While our
+                  platform facilitates peer support and connection, it does not provide medical advice, diagnosis, or
+                  treatment. Always consult with qualified healthcare professionals for mental health concerns.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
 
-          <h2>5. Intellectual Property</h2>
-          <p>
-            The Service and its original content (excluding Content provided by users), features, and functionality are
-            and will remain the exclusive property of Lumos and its licensors. The Service is protected by copyright,
-            trademark, and other laws of both the United States and foreign countries. Our trademarks and trade dress
-            may not be used in connection with any product or service without the prior written consent of Lumos.
-          </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Crisis Situations</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-red-50 dark:bg-red-950/20 p-4 rounded-lg">
+                <p className="text-muted-foreground mb-4">
+                  <strong>If you are experiencing a mental health crisis:</strong>
+                </p>
+                <ul className="list-disc list-inside space-y-2 text-muted-foreground">
+                  <li>Contact emergency services (911) immediately</li>
+                  <li>Call the National Suicide Prevention Lifeline: 988</li>
+                  <li>Text "HELLO" to 741741 for the Crisis Text Line</li>
+                  <li>Go to your nearest emergency room</li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
 
-          <h2>6. Termination</h2>
-          <p>
-            We may terminate or suspend your account immediately, without prior notice or liability, for any reason
-            whatsoever, including without limitation if you breach the Terms.
-          </p>
-          <p>
-            Upon termination, your right to use the Service will immediately cease. If you wish to terminate your
-            account, you may simply discontinue using the Service.
-          </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Limitation of Liability</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground">
+                Lumos shall not be liable for any indirect, incidental, special, consequential, or punitive damages,
+                including without limitation, loss of profits, data, use, goodwill, or other intangible losses,
+                resulting from your use of the platform.
+              </p>
+            </CardContent>
+          </Card>
 
-          <h2>7. Limitation of Liability</h2>
-          <p>
-            In no event shall Lumos, nor its directors, employees, partners, agents, suppliers, or affiliates, be liable
-            for any indirect, incidental, special, consequential or punitive damages, including without limitation, loss
-            of profits, data, use, goodwill, or other intangible losses, resulting from (i) your access to or use of or
-            inability to access or use the Service; (ii) any conduct or content of any third party on the Service; (iii)
-            any content obtained from the Service; and (iv) unauthorized access, use or alteration of your transmissions
-            or content, whether based on warranty, contract, tort (including negligence) or any other legal theory,
-            whether or not we have been informed of the possibility of such damage.
-          </p>
-
-          <h2>8. Changes</h2>
-          <p>
-            We reserve the right, at our sole discretion, to modify or replace these Terms at any time. If a revision is
-            material, we will try to provide at least 30 days' notice prior to any new terms taking effect. What
-            constitutes a material change will be determined at our sole discretion.
-          </p>
-
-          <h2>9. Contact Us</h2>
-          <p>If you have any questions about these Terms, please contact us at:</p>
-          <p>
-            Email: terms@lumos.com
-            <br />
-            Phone: +1 (555) 123-4567
-            <br />
-            Address: 123 Main Street, Suite 100, San Francisco, CA 94105
-          </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Contact Information</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-muted-foreground">
+                For questions about these Terms & Conditions, please contact us at:
+              </p>
+              <div className="mt-4 space-y-2">
+                <p className="font-semibold">Email: legal@lumos.com</p>
+                <p className="font-semibold">Address: 123 Wellness Street, Mental Health City, MH 12345</p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
-    </DashboardLayout>
+    </div>
   )
 }
