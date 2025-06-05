@@ -3,137 +3,196 @@
 import type React from "react"
 
 import { useState, useEffect } from "react"
-import { usePathname } from "next/navigation"
-import Link from "next/link"
 import { useAuth } from "@/components/auth/auth-provider"
+import { supabase } from "@/lib/supabase/client" // Use singleton instance
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Moon, Home, User, MessageCircle, Users, Settings, LogOut, Menu, X, Heart } from "lucide-react"
 import { ModeToggle } from "@/components/mode-toggle"
-import { createClient } from "@/lib/supabase/client"
-import type { Database } from "@/lib/database.types"
+import Link from "next/link"
+import { useRouter, usePathname } from "next/navigation"
+import { Heart, MessageCircle, Users, BookOpen, Settings, LogOut, Home, Shield, Menu, X } from "lucide-react"
 
-type Profile = Database["public"]["Tables"]["profiles"]["Row"]
+interface Profile {
+  id: string
+  display_name: string | null
+  avatar_url: string | null
+  bio: string | null
+}
 
-export function DashboardLayout({ children }: { children: React.ReactNode }) {
+interface DashboardLayoutProps {
+  children: React.ReactNode
+}
+
+export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { user, signOut } = useAuth()
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const router = useRouter()
   const pathname = usePathname()
-  const supabase = createClient()
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   useEffect(() => {
     const fetchProfile = async () => {
-      if (!user) return
+      if (!user || profile) return
 
-      const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).single()
+      try {
+        setIsLoading(true)
+        const { data, error } = await supabase
+          .from("profiles")
+          .select("id, display_name, avatar_url, bio")
+          .eq("id", user.id)
+          .single()
 
-      if (error) {
-        console.error("Error fetching profile:", error)
-        return
+        if (error) {
+          if (error.code === "PGRST116") {
+            // Profile doesn't exist yet, which is fine for new users
+            console.log("Profile not found for user:", user.id)
+          } else {
+            console.error("Error fetching profile:", error)
+          }
+        } else {
+          setProfile(data)
+        }
+      } catch (error) {
+        console.error("Error in fetchProfile:", error)
+      } finally {
+        setIsLoading(false)
       }
-
-      setProfile(data)
     }
 
     fetchProfile()
-  }, [user, supabase])
+  }, [user, profile])
+
+  const handleSignOut = async () => {
+    try {
+      await signOut()
+      router.push("/")
+    } catch (error) {
+      console.error("Error signing out:", error)
+    }
+  }
 
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: Home },
-    { name: "Profile", href: "/profile", icon: User },
     { name: "Matching", href: "/matching", icon: Heart },
     { name: "Messages", href: "/messages", icon: MessageCircle },
     { name: "Community", href: "/community", icon: Users },
+    { name: "Resources", href: "/resources", icon: BookOpen },
     { name: "Settings", href: "/settings", icon: Settings },
   ]
 
-  const closeMobileMenu = () => {
-    setIsMobileMenuOpen(false)
-  }
+  const isAdmin = user?.email === "admin@lumos.com"
 
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Mobile Header */}
-      <header className="lg:hidden border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 sticky top-0 z-30">
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center">
-            <Moon className="h-8 w-8 text-rose-500" />
-            <span className="text-2xl font-bold bg-gradient-to-r from-rose-500 to-amber-500 bg-clip-text text-transparent ml-2">
-              Lumos
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <ModeToggle />
-            <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
-              {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-            </Button>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-background">
+      {/* Mobile menu button */}
+      <div className="lg:hidden fixed top-4 left-4 z-50">
+        <Button variant="outline" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
+          {isMobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+        </Button>
+      </div>
 
-      <div className="flex flex-1">
-        {/* Sidebar for desktop */}
-        <aside className="hidden lg:flex flex-col w-64 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 sticky top-0 h-screen">
-          <div className="p-4 flex items-center">
-            <Moon className="h-8 w-8 text-rose-500" />
-            <span className="text-2xl font-bold bg-gradient-to-r from-rose-500 to-amber-500 bg-clip-text text-transparent ml-2">
-              Lumos
-            </span>
+      {/* Sidebar */}
+      <div
+        className={`fixed inset-y-0 left-0 z-40 w-64 bg-card border-r transform transition-transform duration-300 ease-in-out ${
+          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        } lg:translate-x-0`}
+      >
+        <div className="flex flex-col h-full">
+          <div className="p-6">
+            <Link href="/dashboard" className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                <span className="text-primary-foreground font-bold text-sm">L</span>
+              </div>
+              <span className="text-xl font-bold">Lumos</span>
+            </Link>
           </div>
-          <nav className="flex-1 px-2 py-4 space-y-1">
+
+          <nav className="flex-1 px-4 space-y-2">
             {navigation.map((item) => {
-              const isActive = pathname === item.href || pathname?.startsWith(item.href + "/")
+              const isActive = pathname === item.href
               return (
                 <Link
                   key={item.name}
                   href={item.href}
-                  className={`flex items-center px-4 py-3 text-sm font-medium rounded-md ${
+                  className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive
-                      ? "bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-300"
-                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
                   }`}
+                  onClick={() => setIsMobileMenuOpen(false)}
                 >
-                  <item.icon className={`mr-3 h-5 w-5 ${isActive ? "text-rose-500" : ""}`} />
-                  {item.name}
+                  <item.icon className="h-5 w-5" />
+                  <span>{item.name}</span>
                 </Link>
               )
             })}
+
+            {isAdmin && (
+              <Link
+                href="/admin/community"
+                className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  pathname.startsWith("/admin")
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <Shield className="h-5 w-5" />
+                <span>Admin</span>
+              </Link>
+            )}
           </nav>
-          <div className="p-4 border-t border-slate-200 dark:border-slate-700">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={profile?.avatar_url || ""} alt={profile?.username || ""} />
-                  <AvatarFallback>{profile?.username?.charAt(0) || user?.email?.charAt(0) || "U"}</AvatarFallback>
-                </Avatar>
-                <div className="ml-3">
-                  <p className="text-sm font-medium">{profile?.full_name || profile?.username || user?.email}</p>
-                </div>
-              </div>
+        </div>
+      </div>
+
+      {/* Main content */}
+      <div className="lg:pl-64">
+        {/* Header */}
+        <header className="bg-card border-b px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="lg:hidden" /> {/* Spacer for mobile menu button */}
+            <div className="flex items-center space-x-4 ml-auto">
+              <ModeToggle />
+
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon">
-                    <span className="sr-only">Open menu</span>
-                    <Menu className="h-5 w-5" />
+                  <Button variant="ghost" className="relative h-8 w-8 rounded-full">
+                    <Avatar className="h-8 w-8">
+                      <AvatarImage
+                        src={profile?.avatar_url || undefined}
+                        alt={profile?.display_name || user?.email || "User"}
+                      />
+                      <AvatarFallback>
+                        {profile?.display_name?.[0] || user?.email?.[0]?.toUpperCase() || "U"}
+                      </AvatarFallback>
+                    </Avatar>
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent className="w-56" align="end" forceMount>
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium leading-none">{profile?.display_name || "User"}</p>
+                      <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
-                    <Link href="/profile">Your Profile</Link>
+                    <Link href="/profile">Profile</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
                     <Link href="/settings">Settings</Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => signOut()}>
+                  <DropdownMenuItem onClick={handleSignOut}>
                     <LogOut className="mr-2 h-4 w-4" />
                     <span>Log out</span>
                   </DropdownMenuItem>
@@ -141,71 +200,19 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               </DropdownMenu>
             </div>
           </div>
-        </aside>
+        </header>
 
-        {/* Mobile menu */}
-        {isMobileMenuOpen && (
-          <div className="lg:hidden fixed inset-0 z-40 bg-slate-900/50 backdrop-blur-sm">
-            <div className="fixed inset-y-0 left-0 w-full max-w-xs bg-white dark:bg-slate-900 shadow-xl z-50">
-              <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                <div className="flex items-center">
-                  <Moon className="h-8 w-8 text-rose-500" />
-                  <span className="text-2xl font-bold bg-gradient-to-r from-rose-500 to-amber-500 bg-clip-text text-transparent ml-2">
-                    Lumos
-                  </span>
-                </div>
-                <Button variant="ghost" size="icon" onClick={closeMobileMenu}>
-                  <X className="h-6 w-6" />
-                </Button>
-              </div>
-              <div className="p-4 border-b border-slate-200 dark:border-slate-700">
-                <div className="flex items-center">
-                  <Avatar className="h-10 w-10">
-                    <AvatarImage src={profile?.avatar_url || ""} alt={profile?.username || ""} />
-                    <AvatarFallback>{profile?.username?.charAt(0) || user?.email?.charAt(0) || "U"}</AvatarFallback>
-                  </Avatar>
-                  <div className="ml-3">
-                    <p className="text-sm font-medium">{profile?.full_name || profile?.username || user?.email}</p>
-                  </div>
-                </div>
-              </div>
-              <nav className="p-4 space-y-1">
-                {navigation.map((item) => {
-                  const isActive = pathname === item.href || pathname?.startsWith(item.href + "/")
-                  return (
-                    <Link
-                      key={item.name}
-                      href={item.href}
-                      className={`flex items-center px-4 py-3 text-sm font-medium rounded-md ${
-                        isActive
-                          ? "bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-300"
-                          : "text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
-                      }`}
-                      onClick={closeMobileMenu}
-                    >
-                      <item.icon className={`mr-3 h-5 w-5 ${isActive ? "text-rose-500" : ""}`} />
-                      {item.name}
-                    </Link>
-                  )
-                })}
-                <button
-                  onClick={() => {
-                    closeMobileMenu()
-                    signOut()
-                  }}
-                  className="w-full flex items-center px-4 py-3 text-sm font-medium rounded-md text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  <LogOut className="mr-3 h-5 w-5" />
-                  Log out
-                </button>
-              </nav>
-            </div>
-          </div>
-        )}
-
-        {/* Main content */}
-        <main className="flex-1 bg-slate-50 dark:bg-slate-950 min-h-screen">{children}</main>
+        {/* Page content */}
+        <main className="p-6">{children}</main>
       </div>
+
+      {/* Mobile menu overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black bg-opacity-50 lg:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
     </div>
   )
 }

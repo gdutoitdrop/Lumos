@@ -1,6 +1,6 @@
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { ConversationList } from "@/components/messaging/conversation-list"
-import { MessageThread } from "@/components/messaging/message-thread"
+import { EnhancedMessageThread } from "@/components/messaging/enhanced-message-thread"
 
 export default function ConversationPage({ params }: { params: { id: string } }) {
   return (
@@ -10,7 +10,7 @@ export default function ConversationPage({ params }: { params: { id: string } })
           <ConversationList />
         </div>
         <div className="flex-1">
-          <MessageThread conversationId={params.id} />
+          <EnhancedMessageThread conversationId={params.id} />
         </div>
       </div>
     </DashboardLayout>

@@ -5,10 +5,10 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useAuth } from "@/components/auth/auth-provider"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Search, Plus } from "lucide-react"
+import { Search } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
+import { NewConversationModal } from "./new-conversation-modal"
 import type { Database } from "@/lib/database.types"
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"]
@@ -51,6 +51,7 @@ export function ConversationList() {
 
         if (!participations.length) {
           setConversations([])
+          setLoading(false)
           return
         }
 
@@ -239,9 +240,7 @@ export function ConversationList() {
       </div>
 
       <div className="p-4 border-t border-slate-200 dark:border-slate-700">
-        <Button className="w-full bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-          <Plus className="mr-2 h-4 w-4" /> New Conversation
-        </Button>
+        <NewConversationModal />
       </div>
     </div>
   )
