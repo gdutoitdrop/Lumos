@@ -1,85 +1,103 @@
 "use client"
 
+import type React from "react"
+
 import { useState } from "react"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
-import * as z from "zod"
-import { supabase } from "@/lib/supabase/client" // Use singleton instance
 import { Button } from "@/components/ui/button"
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Moon } from "lucide-react"
-
-const formSchema = z
-  .object({
-    email: z.string().email({ message: "Please enter a valid email address" }),
-    password: z.string().min(6, { message: "Password must be at least 6 characters" }),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords do not match",
-    path: ["confirmPassword"],
-  })
+import Link from "next/link"
+import { createClient } from "@/lib/supabase/client"
+import { DebugAuth } from "@/components/auth/debug-auth"
 
 export function SignupForm() {
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
+  const [success, setSuccess] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const router = useRouter()
+  const supabase = createClient()
 
-  const form = useForm<z.infer<typeof formSchema>>({
-    resolver: zodResolver(formSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-      confirmPassword: "",
-    },
-  })
-
-  async function onSubmit(values: z.infer<typeof formSchema>) {
-    setIsLoading(true)
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
     setError(null)
-    setSuccess(null)
+    setIsLoading(true)
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match")
+      setIsLoading(false)
+      return
+    }
 
     try {
-      const { error } = await supabase.auth.signUp({
-        email: values.email,
-        password: values.password,
+      // Sign up with Supabase
+      const { data, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`,
         },
       })
 
-      if (error) {
-        setError(error.message)
-        return
+      if (signUpError) throw signUpError
+
+      // For development - log the session data
+      if (process.env.NODE_ENV === "development") {
+        console.log("Auth signup response:", data)
       }
 
-      setSuccess("Check your email for the confirmation link. If you don't see it, check your spam folder.")
-      form.reset()
-    } catch (err) {
-      console.error("Signup error:", err)
-      setError("An unexpected error occurred. Please try again.")
+      // If signup was successful, show success message
+      setSuccess(true)
+    } catch (err: any) {
+      setError(err.message || "An error occurred during sign up")
+      console.error(err)
     } finally {
       setIsLoading(false)
     }
   }
 
+  if (success) {
+    return (
+      <Card className="w-full max-w-md mx-auto">
+        <CardHeader>
+          <CardTitle className="text-2xl text-center">Check your email</CardTitle>
+          <CardDescription className="text-center">
+            We've sent you a verification link to <strong>{email}</strong>. Please check your email (including spam
+            folder) to complete your registration.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-center">
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+            If you don't see the email within a few minutes, please check your spam folder or try signing up again.
+          </p>
+        </CardContent>
+        <CardFooter className="flex justify-center flex-col">
+          <Link href="/login">
+            <Button variant="link" className="text-rose-500">
+              Back to login
+            </Button>
+          </Link>
+          <DebugAuth />
+        </CardFooter>
+      </Card>
+    )
+  }
+
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader className="space-y-1 flex flex-col items-center">
-        <div className="flex items-center justify-center mb-2">
+    <Card className="w-full max-w-md mx-auto">
+      <CardHeader className="space-y-1">
+        <div className="flex items-center justify-center mb-4">
           <Moon className="h-10 w-10 text-rose-500" />
           <span className="text-3xl font-bold bg-gradient-to-r from-rose-500 to-amber-500 bg-clip-text text-transparent ml-2">
             Lumos
           </span>
         </div>
-        <CardTitle className="text-2xl">Create an account</CardTitle>
-        <CardDescription>Enter your information to create an account</CardDescription>
+        <CardTitle className="text-2xl text-center">Create an account</CardTitle>
+        <CardDescription className="text-center">Enter your details to create your Lumos account</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {error && (
@@ -87,65 +105,57 @@ export function SignupForm() {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-        {success && (
-          <Alert className="bg-green-50 text-green-800 border-green-200">
-            <AlertDescription>{success}</AlertDescription>
-          </Alert>
-        )}
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input placeholder="you@example.com" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="your@email.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
             />
-            <FormField
-              control={form.control}
-              name="password"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Password</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder="••••••••" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
             />
-            <FormField
-              control={form.control}
-              name="confirmPassword"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Confirm Password</FormLabel>
-                  <FormControl>
-                    <Input type="password" placeholder="••••••••" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">Confirm Password</Label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              placeholder="••••••••"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
             />
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Creating account..." : "Create account"}
-            </Button>
-          </form>
-        </Form>
+          </div>
+          <Button
+            type="submit"
+            className="w-full bg-gradient-to-r from-rose-500 to-amber-500 text-white"
+            disabled={isLoading}
+          >
+            {isLoading ? "Creating account..." : "Create account"}
+          </Button>
+        </form>
       </CardContent>
-      <CardFooter>
-        <div className="text-sm text-center text-muted-foreground w-full">
+      <CardFooter className="flex flex-col">
+        <p className="text-sm text-slate-500 dark:text-slate-400">
           Already have an account?{" "}
-          <Link href="/login" className="text-primary hover:underline">
+          <Link href="/login" className="text-rose-500 hover:underline">
             Sign in
           </Link>
-        </div>
+        </p>
+        <DebugAuth />
       </CardFooter>
     </Card>
   )

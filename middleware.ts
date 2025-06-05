@@ -4,10 +4,6 @@ import type { NextRequest } from "next/server"
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next()
-
-  // Create a new middleware client for each request
-  // This is correct and doesn't cause the multiple client warning
-  // because middleware runs on the server, not in the browser
   const supabase = createMiddlewareClient({ req, res })
 
   const {
