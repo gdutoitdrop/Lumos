@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth/auth-provider"
 import { supabase } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,7 +19,20 @@ import {
 import { ModeToggle } from "@/components/mode-toggle"
 import Link from "next/link"
 import { useRouter, usePathname } from "next/navigation"
-import { Heart, MessageCircle, Users, BookOpen, Settings, LogOut, Home, Shield, Menu, X } from "lucide-react"
+import {
+  Heart,
+  MessageCircle,
+  Users,
+  BookOpen,
+  Settings,
+  LogOut,
+  Home,
+  Shield,
+  Menu,
+  X,
+  Crown,
+  Zap,
+} from "lucide-react"
 
 interface Profile {
   id: string
@@ -26,6 +40,8 @@ interface Profile {
   full_name: string | null
   avatar_url: string | null
   bio: string | null
+  connection_mode: string | null
+  subscription_tier: string | null
 }
 
 interface DashboardLayoutProps {
@@ -48,7 +64,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         setIsLoading(true)
         const { data, error } = await supabase
           .from("profiles")
-          .select("id, username, full_name, avatar_url, bio")
+          .select("id, username, full_name, avatar_url, bio, connection_mode, subscription_tier")
           .eq("id", user.id)
           .single()
 
@@ -91,6 +107,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   ]
 
   const isAdmin = user?.email === "admin@lumos.com"
+  const isPremium = profile?.subscription_tier === "premium" || profile?.subscription_tier === "premium_plus"
 
   // Get display name from profile data
   const displayName = profile?.full_name || profile?.username || user?.email?.split("@")[0] || "User"
@@ -118,6 +135,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <span className="text-primary-foreground font-bold text-sm">L</span>
               </div>
               <span className="text-xl font-bold">Lumos</span>
+              {isPremium && <Crown className="h-4 w-4 text-amber-500" />}
             </Link>
           </div>
 
@@ -140,6 +158,45 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 </Link>
               )
             })}
+
+            {/* Premium/Mode Selection Links */}
+            <div className="pt-4 border-t">
+              <Link
+                href="/mode-selection"
+                className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  pathname === "/mode-selection"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <Zap className="h-5 w-5" />
+                <span>Connection Mode</span>
+                {profile?.connection_mode && (
+                  <Badge variant="secondary" className="text-xs">
+                    {profile.connection_mode}
+                  </Badge>
+                )}
+              </Link>
+
+              <Link
+                href="/premium"
+                className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  pathname === "/premium"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <Crown className="h-5 w-5" />
+                <span>Premium</span>
+                {isPremium && (
+                  <Badge variant="secondary" className="bg-amber-100 text-amber-700 text-xs">
+                    Active
+                  </Badge>
+                )}
+              </Link>
+            </div>
 
             {isAdmin && (
               <Link
@@ -175,18 +232,33 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       <AvatarImage src={profile?.avatar_url || undefined} alt={displayName} />
                       <AvatarFallback>{avatarFallback}</AvatarFallback>
                     </Avatar>
+                    {isPremium && <Crown className="absolute -top-1 -right-1 h-4 w-4 text-amber-500" />}
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-56" align="end" forceMount>
                   <DropdownMenuLabel className="font-normal">
                     <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none">{displayName}</p>
+                      <p className="text-sm font-medium leading-none flex items-center gap-2">
+                        {displayName}
+                        {isPremium && <Crown className="h-3 w-3 text-amber-500" />}
+                      </p>
                       <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
+                      {profile?.connection_mode && (
+                        <Badge variant="outline" className="text-xs w-fit">
+                          {profile.connection_mode} mode
+                        </Badge>
+                      )}
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem asChild>
                     <Link href="/profile">Profile</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/mode-selection">Connection Mode</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/premium">Premium Features</Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
                     <Link href="/settings">Settings</Link>
