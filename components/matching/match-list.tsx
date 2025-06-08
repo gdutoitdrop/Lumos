@@ -8,24 +8,17 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Heart, X, MessageCircle, RefreshCw } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
-import type { Database } from "@/lib/database.types"
 import { useRouter } from "next/navigation"
 import { generateMatches } from "@/app/actions"
-
-type Profile = Database["public"]["Tables"]["profiles"]["Row"]
-type Match = Database["public"]["Tables"]["matches"]["Row"] & {
-  matched_profile: Profile
-}
 
 export function MatchList() {
   const { user } = useAuth()
   const router = useRouter()
   const supabase = createClient()
 
-  const [matches, setMatches] = useState<Match[]>([])
-  const [pendingMatches, setPendingMatches] = useState<Match[]>([])
+  const [matches, setMatches] = useState<any[]>([])
+  const [pendingMatches, setPendingMatches] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-
   const [generatingMatches, setGeneratingMatches] = useState(false)
   const [matchGenMessage, setMatchGenMessage] = useState<string | null>(null)
 
@@ -66,7 +59,7 @@ export function MatchList() {
         const allMatches = [...(matches1 || []), ...(matches2 || [])]
 
         // Get profiles for all matches
-        const matchesWithProfiles: Match[] = []
+        const matchesWithProfiles = []
 
         for (const match of allMatches) {
           const otherProfileId = match.profile_id_1 === user.id ? match.profile_id_2 : match.profile_id_1
@@ -86,7 +79,7 @@ export function MatchList() {
         }
 
         // Get profiles for pending matches
-        const pendingWithProfiles: Match[] = []
+        const pendingWithProfiles = []
 
         for (const match of pendingData || []) {
           const { data: profile, error: profileError } = await supabase
@@ -155,60 +148,6 @@ export function MatchList() {
       setPendingMatches((prev) => prev.filter((match) => match.id !== matchId))
     } catch (error) {
       console.error("Error rejecting match:", error)
-    }
-  }
-
-  const startConversation = async (matchedProfileId: string) => {
-    if (!user) return
-
-    try {
-      // Check if conversation already exists
-      const { data: existingParticipations, error: participationsError } = await supabase
-        .from("conversation_participants")
-        .select("conversation_id")
-        .eq("profile_id", user.id)
-
-      if (participationsError) throw participationsError
-
-      if (existingParticipations && existingParticipations.length > 0) {
-        const conversationIds = existingParticipations.map((p) => p.conversation_id)
-
-        const { data: otherParticipations, error: otherParticipationsError } = await supabase
-          .from("conversation_participants")
-          .select("conversation_id, profile_id")
-          .in("conversation_id", conversationIds)
-          .eq("profile_id", matchedProfileId)
-
-        if (otherParticipationsError) throw otherParticipationsError
-
-        if (otherParticipations && otherParticipations.length > 0) {
-          // Conversation already exists, navigate to it
-          router.push(`/messages/${otherParticipations[0].conversation_id}`)
-          return
-        }
-      }
-
-      // Create new conversation
-      const { data: conversation, error: conversationError } = await supabase
-        .from("conversations")
-        .insert({})
-        .select()
-        .single()
-
-      if (conversationError) throw conversationError
-
-      // Add participants
-      const { error: participantsError } = await supabase.from("conversation_participants").insert([
-        { conversation_id: conversation.id, profile_id: user.id },
-        { conversation_id: conversation.id, profile_id: matchedProfileId },
-      ])
-
-      if (participantsError) throw participantsError
-
-      // Navigate to the conversation
-      router.push(`/messages/${conversation.id}`)
-    } catch (error) {
-      console.error("Error starting conversation:", error)
     }
   }
 
@@ -419,7 +358,7 @@ export function MatchList() {
                   </p>
 
                   <Button
-                    onClick={() => startConversation(match.matched_profile.id)}
+                    onClick={() => router.push(`/messages`)}
                     className="w-full bg-gradient-to-r from-rose-500 to-amber-500 text-white"
                   >
                     <MessageCircle className="mr-2 h-4 w-4" />
