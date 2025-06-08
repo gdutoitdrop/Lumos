@@ -5,22 +5,40 @@ import { useAuth } from "@/components/auth/auth-provider"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Send } from "lucide-react"
+import { Send, User } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
-import type { Database } from "@/lib/database.types"
-
-type Profile = Database["public"]["Tables"]["profiles"]["Row"]
-type Message = Database["public"]["Tables"]["messages"]["Row"]
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface MessageThreadProps {
   conversationId: string
+}
+
+interface Profile {
+  id: string
+  username: string | null
+  full_name: string | null
+  bio: string | null
+  avatar_url: string | null
+  current_mood: string | null
+  location: string | null
+}
+
+interface Message {
+  id: string
+  conversation_id: string
+  sender_id: string | null
+  profile_id: string | null
+  content: string
+  is_read: boolean
+  created_at: string
+  sender?: Profile
 }
 
 export function MessageThread({ conversationId }: MessageThreadProps) {
   const { user } = useAuth()
   const supabase = createClient()
 
-  const [messages, setMessages] = useState<(Message & { sender: Profile })[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
@@ -35,18 +53,29 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
       if (!user) return
 
       try {
-        const { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
+        // Try auth_id first
+        let { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
 
-        if (error) {
-          console.error("Error fetching profile:", error)
-          setError("Could not find your profile. Please try again later.")
-          return
+        if (error || !data) {
+          // Try direct ID match
+          const { data: directData, error: directError } = await supabase
+            .from("profiles")
+            .select("id")
+            .eq("id", user.id)
+            .single()
+
+          if (!directError && directData) {
+            data = directData
+          }
         }
 
-        setProfileId(data.id)
+        if (data) {
+          setProfileId(data.id)
+        } else {
+          console.warn("Could not find profile for user:", user.id)
+        }
       } catch (err) {
         console.error("Error in getProfileId:", err)
-        setError("An unexpected error occurred. Please try again later.")
       }
     }
 
@@ -55,14 +84,13 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
 
   useEffect(() => {
     const fetchMessages = async () => {
-      if (!user || !conversationId || !profileId) return
+      if (!user || !conversationId) return
 
       setLoading(true)
       setError(null)
 
       try {
         console.log("Fetching messages for conversation:", conversationId)
-        console.log("Current user profile ID:", profileId)
 
         // Get all messages in the conversation
         const { data: messagesData, error: messagesError } = await supabase
@@ -73,73 +101,75 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
 
         if (messagesError) {
           console.error("Error fetching messages:", messagesError)
-          setError("Could not load messages. Please try again later.")
+          setError("Could not load messages. Please try again.")
           return
         }
 
         console.log("Messages data:", messagesData)
 
-        // Get the other participant
+        // Get conversation participants
         const { data: participants, error: participantsError } = await supabase
           .from("conversation_participants")
-          .select("profile_id")
+          .select("user_id, profile_id")
           .eq("conversation_id", conversationId)
-          .neq("profile_id", profileId)
 
         if (participantsError) {
           console.error("Error fetching participants:", participantsError)
-          setError("Could not load conversation participants. Please try again later.")
+          setError("Could not load conversation participants.")
           return
         }
 
         console.log("Participants data:", participants)
 
-        if (participants.length > 0) {
-          const otherParticipantId = participants[0].profile_id
+        // Find the other participant
+        const otherParticipant = participants?.find(
+          (p) => p.user_id !== user.id && (profileId ? p.profile_id !== profileId : true),
+        )
 
+        if (otherParticipant) {
           // Get the other participant's profile
+          const profileIdToFetch = otherParticipant.profile_id || otherParticipant.user_id
+
           const { data: profile, error: profileError } = await supabase
             .from("profiles")
             .select("*")
-            .eq("id", otherParticipantId)
+            .eq("id", profileIdToFetch)
             .single()
 
-          if (profileError) {
-            console.error("Error fetching participant profile:", profileError)
-            setError("Could not load participant profile. Please try again later.")
-            return
+          if (!profileError && profile) {
+            setParticipant(profile)
           }
-
-          setParticipant(profile)
         }
 
-        // Get all senders' profiles
-        const senderIds = [...new Set(messagesData.map((m) => m.profile_id))]
+        // Get sender profiles for all messages
+        const senderIds = [...new Set(messagesData.map((m) => m.profile_id || m.sender_id).filter(Boolean))]
 
-        if (senderIds.length === 0) {
-          // No messages yet
-          setMessages([])
-          return
+        if (senderIds.length > 0) {
+          const { data: profiles, error: profilesError } = await supabase
+            .from("profiles")
+            .select("*")
+            .in("id", senderIds)
+
+          if (!profilesError && profiles) {
+            // Combine messages with sender profiles
+            const messagesWithSenders = messagesData.map((message) => {
+              const senderId = message.profile_id || message.sender_id
+              const sender = profiles.find((p) => p.id === senderId)
+              return { ...message, sender }
+            })
+
+            setMessages(messagesWithSenders)
+          } else {
+            setMessages(messagesData)
+          }
+        } else {
+          setMessages(messagesData)
         }
-
-        const { data: profiles, error: profilesError } = await supabase.from("profiles").select("*").in("id", senderIds)
-
-        if (profilesError) {
-          console.error("Error fetching sender profiles:", profilesError)
-          setError("Could not load sender profiles. Please try again later.")
-          return
-        }
-
-        // Combine messages with sender profiles
-        const messagesWithSenders = messagesData.map((message) => {
-          const sender = profiles.find((p) => p.id === message.profile_id)
-          return { ...message, sender: sender! }
-        })
-
-        setMessages(messagesWithSenders)
 
         // Mark unread messages as read
-        const unreadMessages = messagesData.filter((m) => !m.is_read && m.profile_id !== profileId)
+        const unreadMessages = messagesData.filter(
+          (m) => !m.is_read && m.sender_id !== user.id && m.profile_id !== profileId,
+        )
 
         if (unreadMessages.length > 0) {
           await Promise.all(
@@ -148,55 +178,47 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
         }
       } catch (error) {
         console.error("Error in fetchMessages:", error)
-        setError("An unexpected error occurred. Please try again later.")
+        setError("An unexpected error occurred.")
       } finally {
         setLoading(false)
       }
     }
 
-    if (profileId) {
-      fetchMessages()
+    fetchMessages()
 
-      // Subscribe to new messages
-      const messagesSubscription = supabase
-        .channel(`messages-${conversationId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "messages",
-            filter: `conversation_id=eq.${conversationId}`,
-          },
-          async (payload) => {
-            const newMessage = payload.new as Message
+    // Subscribe to new messages
+    const messagesSubscription = supabase
+      .channel(`messages-${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          const newMessage = payload.new as Message
 
-            // Get the sender's profile
-            const { data: sender, error: senderError } = await supabase
-              .from("profiles")
-              .select("*")
-              .eq("id", newMessage.profile_id)
-              .single()
-
-            if (senderError) {
-              console.error("Error fetching sender:", senderError)
-              return
-            }
+          // Get the sender's profile
+          const senderId = newMessage.profile_id || newMessage.sender_id
+          if (senderId) {
+            const { data: sender } = await supabase.from("profiles").select("*").eq("id", senderId).single()
 
             // Add the new message to the state
             setMessages((prev) => [...prev, { ...newMessage, sender }])
 
-            // Mark the message as read if it's not from the current user
-            if (newMessage.profile_id !== profileId) {
+            // Mark as read if not from current user
+            if (newMessage.sender_id !== user.id && newMessage.profile_id !== profileId) {
               await supabase.from("messages").update({ is_read: true }).eq("id", newMessage.id)
             }
-          },
-        )
-        .subscribe()
+          }
+        },
+      )
+      .subscribe()
 
-      return () => {
-        supabase.removeChannel(messagesSubscription)
-      }
+    return () => {
+      supabase.removeChannel(messagesSubscription)
     }
   }, [user, conversationId, supabase, profileId])
 
@@ -206,23 +228,26 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
   }, [messages])
 
   const handleSendMessage = async () => {
-    if (!user || !conversationId || !newMessage.trim() || !profileId) return
+    if (!user || !conversationId || !newMessage.trim()) return
 
     setSending(true)
     setError(null)
 
     try {
-      console.log("Sending message:", {
+      const messageData: any = {
         conversation_id: conversationId,
-        profile_id: profileId,
+        sender_id: user.id,
         content: newMessage.trim(),
-      })
+      }
 
-      const { error } = await supabase.from("messages").insert({
-        conversation_id: conversationId,
-        profile_id: profileId,
-        content: newMessage.trim(),
-      })
+      // Add profile_id if we have it
+      if (profileId) {
+        messageData.profile_id = profileId
+      }
+
+      console.log("Sending message:", messageData)
+
+      const { error } = await supabase.from("messages").insert(messageData)
 
       if (error) {
         console.error("Error sending message:", error)
@@ -233,7 +258,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
       setNewMessage("")
     } catch (error) {
       console.error("Error in handleSendMessage:", error)
-      setError("An unexpected error occurred. Please try again later.")
+      setError("An unexpected error occurred.")
     } finally {
       setSending(false)
     }
@@ -250,7 +275,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
   }
 
   const groupMessagesByDate = () => {
-    const groups: { date: string; messages: (Message & { sender: Profile })[] }[] = []
+    const groups: { date: string; messages: Message[] }[] = []
 
     messages.forEach((message) => {
       const messageDate = formatMessageDate(message.created_at)
@@ -269,6 +294,12 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
     return groups
   }
 
+  const viewProfile = () => {
+    if (participant) {
+      window.location.href = `/profile/${participant.id}`
+    }
+  }
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -280,25 +311,31 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
   return (
     <div className="h-full flex flex-col">
       {participant && (
-        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center">
-          <Avatar className="h-10 w-10 mr-3">
-            <AvatarImage src={participant.avatar_url || ""} alt={participant.username || ""} />
-            <AvatarFallback>{participant.username?.charAt(0) || "U"}</AvatarFallback>
-          </Avatar>
-          <div>
-            <h2 className="text-lg font-medium">{participant.full_name || participant.username}</h2>
-            {participant.current_mood && (
-              <p className="text-sm text-slate-500 dark:text-slate-400">{participant.current_mood}</p>
-            )}
+        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+          <div className="flex items-center">
+            <Avatar className="h-10 w-10 mr-3">
+              <AvatarImage src={participant.avatar_url || ""} alt={participant.username || ""} />
+              <AvatarFallback>{(participant.full_name || participant.username || "U").charAt(0)}</AvatarFallback>
+            </Avatar>
+            <div>
+              <h2 className="text-lg font-medium">{participant.full_name || participant.username}</h2>
+              {participant.current_mood && (
+                <p className="text-sm text-slate-500 dark:text-slate-400">{participant.current_mood}</p>
+              )}
+            </div>
           </div>
+          <Button variant="outline" size="sm" onClick={viewProfile}>
+            <User className="h-4 w-4 mr-2" />
+            Profile
+          </Button>
         </div>
       )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4">
-            <span className="block sm:inline">{error}</span>
-          </div>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {messages.length === 0 ? (
@@ -315,7 +352,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
               </div>
 
               {group.messages.map((message) => {
-                const isCurrentUser = message.profile_id === profileId
+                const isCurrentUser = message.sender_id === user.id || (profileId && message.profile_id === profileId)
 
                 return (
                   <div key={message.id} className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
@@ -325,7 +362,9 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
                       {!isCurrentUser && (
                         <Avatar className="h-8 w-8">
                           <AvatarImage src={message.sender?.avatar_url || ""} alt={message.sender?.username || ""} />
-                          <AvatarFallback>{message.sender?.username?.charAt(0) || "U"}</AvatarFallback>
+                          <AvatarFallback>
+                            {(message.sender?.full_name || message.sender?.username || "U").charAt(0)}
+                          </AvatarFallback>
                         </Avatar>
                       )}
 
@@ -366,6 +405,12 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             className="min-h-[80px] resize-none"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault()
+                handleSendMessage()
+              }
+            }}
           />
           <Button
             type="submit"

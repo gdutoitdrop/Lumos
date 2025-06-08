@@ -25,18 +25,27 @@ export default function MessagesPage() {
       if (!user) return
 
       try {
-        const { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
+        // Try auth_id first
+        let { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
 
-        if (error) {
-          console.error("Error fetching profile:", error)
-          setError("Could not find your profile. Please try again later.")
-          return
+        if (error || !data) {
+          // Try direct ID match
+          const { data: directData, error: directError } = await supabase
+            .from("profiles")
+            .select("id")
+            .eq("id", user.id)
+            .single()
+
+          if (!directError && directData) {
+            data = directData
+          }
         }
 
-        setProfileId(data.id)
+        if (data) {
+          setProfileId(data.id)
+        }
       } catch (err) {
         console.error("Error in getProfileId:", err)
-        setError("An unexpected error occurred. Please try again later.")
       }
     }
 
@@ -45,12 +54,12 @@ export default function MessagesPage() {
 
   useEffect(() => {
     const fetchMatches = async () => {
-      if (!user || !profileId) return
+      if (!user) return
 
       try {
-        console.log("Fetching matches for profile ID:", profileId)
+        console.log("Fetching matches for user:", user.id, "profile:", profileId)
 
-        // Fetch matches where the current user is either user1 or user2
+        // Get matches where current user is involved
         const { data: matchesData, error } = await supabase
           .from("matches")
           .select(`
@@ -59,25 +68,52 @@ export default function MessagesPage() {
             user2_id,
             status,
             match_score,
-            profiles!matches_user1_id_fkey (id, username, full_name, bio, avatar_url, gender, location, current_mood),
-            profiles!matches_user2_id_fkey (id, username, full_name, bio, avatar_url, gender, location, current_mood)
+            created_at
           `)
-          .or(`user1_id.eq.${profileId},user2_id.eq.${profileId}`)
+          .or(`user1_id.eq.${profileId || user.id},user2_id.eq.${profileId || user.id}`)
           .eq("status", "accepted")
 
         if (error) {
           console.error("Error fetching matches:", error)
-          setError("Could not load your matches. Please try again later.")
+          setError("Could not load your matches.")
           return
         }
 
         console.log("Raw matches data:", matchesData)
 
-        // Transform matches to get the other user's profile
-        const transformedMatches =
-          matchesData?.map((match) => {
-            const isUser1 = match.user1_id === profileId
-            const otherUser = isUser1 ? match.profiles[0] : match.profiles[1]
+        if (!matchesData || matchesData.length === 0) {
+          setMatches([])
+          return
+        }
+
+        // Get the other user IDs
+        const otherUserIds = matchesData.map((match) => {
+          const currentUserId = profileId || user.id
+          return match.user1_id === currentUserId ? match.user2_id : match.user1_id
+        })
+
+        // Get profiles for other users
+        const { data: profiles, error: profilesError } = await supabase
+          .from("profiles")
+          .select("*")
+          .in("id", otherUserIds)
+
+        if (profilesError) {
+          console.error("Error fetching profiles:", profilesError)
+          setError("Could not load match profiles.")
+          return
+        }
+
+        console.log("Profiles data:", profiles)
+
+        // Transform matches with profile data
+        const transformedMatches = matchesData
+          .map((match) => {
+            const currentUserId = profileId || user.id
+            const otherUserId = match.user1_id === currentUserId ? match.user2_id : match.user1_id
+            const otherUser = profiles?.find((p) => p.id === otherUserId)
+
+            if (!otherUser) return null
 
             return {
               id: otherUser.id,
@@ -90,21 +126,22 @@ export default function MessagesPage() {
               current_mood: otherUser.current_mood,
               journey: otherUser.current_mood || "Mental Health Journey",
               matchScore: match.match_score ? Math.round(match.match_score * 100) : 85,
-              isOnline: Math.random() > 0.5, // Random online status for demo
+              isOnline: Math.random() > 0.5, // Random for demo
             }
-          }) || []
+          })
+          .filter(Boolean)
 
         console.log("Transformed matches:", transformedMatches)
         setMatches(transformedMatches)
       } catch (error) {
         console.error("Error in fetchMatches:", error)
-        setError("An unexpected error occurred. Please try again later.")
+        setError("An unexpected error occurred.")
       } finally {
         setLoading(false)
       }
     }
 
-    if (profileId) {
+    if (profileId || user) {
       fetchMatches()
     }
   }, [user, supabase, profileId])
@@ -116,21 +153,22 @@ export default function MessagesPage() {
   )
 
   const startChat = async (matchId: string) => {
-    if (!user || !profileId) return
+    if (!user) return
 
     try {
       console.log("Starting chat with match ID:", matchId)
-      console.log("Current user profile ID:", profileId)
+
+      const currentUserId = profileId || user.id
 
       // Check if conversation already exists
       const { data: existingConversations, error: checkError } = await supabase
         .from("conversation_participants")
         .select("conversation_id")
-        .eq("profile_id", profileId)
+        .or(`user_id.eq.${user.id},profile_id.eq.${currentUserId}`)
 
       if (checkError) {
-        console.error("Error checking existing conversations:", checkError)
-        setError("Could not check existing conversations. Please try again later.")
+        console.error("Error checking conversations:", checkError)
+        setError("Could not check existing conversations.")
         return
       }
 
@@ -145,18 +183,10 @@ export default function MessagesPage() {
         const { data: matchParticipations, error: matchError } = await supabase
           .from("conversation_participants")
           .select("conversation_id")
-          .eq("profile_id", matchId)
+          .or(`user_id.eq.${matchId},profile_id.eq.${matchId}`)
           .in("conversation_id", conversationIds)
 
-        if (matchError) {
-          console.error("Error checking match participations:", matchError)
-          setError("Could not check match participations. Please try again later.")
-          return
-        }
-
-        console.log("Match participations:", matchParticipations)
-
-        if (matchParticipations && matchParticipations.length > 0) {
+        if (!matchError && matchParticipations && matchParticipations.length > 0) {
           existingConversationId = matchParticipations[0].conversation_id
         }
       }
@@ -174,21 +204,23 @@ export default function MessagesPage() {
 
       if (convError) {
         console.error("Error creating conversation:", convError)
-        setError("Could not create a new conversation. Please try again later.")
+        setError("Could not create conversation.")
         return
       }
 
       console.log("New conversation created:", conversation)
 
       // Add participants
-      const { error: participantsError } = await supabase.from("conversation_participants").insert([
-        { conversation_id: conversation.id, profile_id: profileId },
-        { conversation_id: conversation.id, profile_id: matchId },
-      ])
+      const participantsData = [
+        { conversation_id: conversation.id, user_id: user.id, profile_id: currentUserId },
+        { conversation_id: conversation.id, user_id: matchId, profile_id: matchId },
+      ]
+
+      const { error: participantsError } = await supabase.from("conversation_participants").insert(participantsData)
 
       if (participantsError) {
         console.error("Error adding participants:", participantsError)
-        setError("Could not add participants to the conversation. Please try again later.")
+        setError("Could not add participants to conversation.")
         return
       }
 
@@ -198,7 +230,7 @@ export default function MessagesPage() {
       window.location.href = `/messages/chat/${conversation.id}`
     } catch (error) {
       console.error("Error in startChat:", error)
-      setError("An unexpected error occurred. Please try again later.")
+      setError("An unexpected error occurred.")
     }
   }
 

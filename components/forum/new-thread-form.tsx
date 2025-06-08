@@ -17,6 +17,7 @@ export function NewThreadForm({ category }: { category: string }) {
   const [title, setTitle] = useState("")
   const [content, setContent] = useState("")
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [profileId, setProfileId] = useState<string | null>(null)
   const { user } = useAuth()
@@ -24,28 +25,24 @@ export function NewThreadForm({ category }: { category: string }) {
   const supabase = createClient()
 
   useEffect(() => {
-    // Get the user's profile ID
     const getProfileId = async () => {
       if (!user) return
 
       try {
-        // Try to get profile by auth_id first
+        // Try auth_id first
         let { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
 
         if (error || !data) {
-          // If that fails, try by id directly
+          // Try direct ID match
           const { data: directData, error: directError } = await supabase
             .from("profiles")
             .select("id")
             .eq("id", user.id)
             .single()
 
-          if (directError) {
-            console.error("Error fetching profile:", directError)
-            return
+          if (!directError && directData) {
+            data = directData
           }
-
-          data = directData
         }
 
         if (data) {
@@ -66,13 +63,24 @@ export function NewThreadForm({ category }: { category: string }) {
       return
     }
 
+    if (!title.trim() || !content.trim()) {
+      setError("Please fill in all fields")
+      return
+    }
+
+    if (content.trim().length < 10) {
+      setError("Content must be at least 10 characters long")
+      return
+    }
+
     setError(null)
+    setSuccess(null)
     setSubmitting(true)
 
     try {
       console.log("Creating thread with user ID:", user.id, "profile ID:", profileId)
 
-      // Create the thread with both author_id and profile_id for maximum compatibility
+      // Create the thread with both IDs for maximum compatibility
       const threadData: any = {
         title: title.trim(),
         content: content.trim(),
@@ -84,6 +92,8 @@ export function NewThreadForm({ category }: { category: string }) {
       if (profileId) {
         threadData.profile_id = profileId
       }
+
+      console.log("Thread data:", threadData)
 
       const { data: thread, error: threadError } = await supabase
         .from("forum_threads")
@@ -98,11 +108,25 @@ export function NewThreadForm({ category }: { category: string }) {
 
       console.log("Thread created successfully:", thread)
 
-      // Redirect to the new thread
-      router.push(`/community/${category}/${thread.id}`)
+      setSuccess("Thread created successfully! Redirecting...")
+
+      // Small delay to show success message
+      setTimeout(() => {
+        router.push(`/community/${category}/${thread.id}`)
+      }, 1000)
     } catch (err: any) {
       console.error("Final error:", err)
-      setError(err.message || "An error occurred while creating the thread. Please try again.")
+
+      // Provide more specific error messages
+      if (err.message?.includes("author_id")) {
+        setError("There was an issue with your user account. Please try logging out and back in.")
+      } else if (err.message?.includes("profile_id")) {
+        setError("There was an issue with your profile. Please complete your profile setup first.")
+      } else if (err.message?.includes("permission")) {
+        setError("You don't have permission to create threads. Please contact support.")
+      } else {
+        setError(err.message || "An error occurred while creating the thread. Please try again.")
+      }
     } finally {
       setSubmitting(false)
     }
@@ -129,6 +153,11 @@ export function NewThreadForm({ category }: { category: string }) {
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
+        {success && (
+          <Alert className="mb-4 border-green-200 bg-green-50 text-green-800">
+            <AlertDescription>{success}</AlertDescription>
+          </Alert>
+        )}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="title">Title</Label>
@@ -139,7 +168,9 @@ export function NewThreadForm({ category }: { category: string }) {
               placeholder="Enter a descriptive title for your thread"
               required
               maxLength={255}
+              disabled={submitting}
             />
+            <p className="text-xs text-slate-500">{title.length}/255 characters</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="content">Content</Label>
@@ -151,7 +182,9 @@ export function NewThreadForm({ category }: { category: string }) {
               rows={8}
               required
               minLength={10}
+              disabled={submitting}
             />
+            <p className="text-xs text-slate-500">{content.length} characters (minimum 10 required)</p>
           </div>
           <Button
             type="submit"
