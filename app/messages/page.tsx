@@ -1,65 +1,132 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Search, MessageCircle, Heart, User } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+import { useAuth } from "@/components/auth/auth-provider"
 
 export default function MessagesPage() {
   const [searchQuery, setSearchQuery] = useState("")
+  const [matches, setMatches] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const { user } = useAuth()
+  const supabase = createClient()
 
-  const matches = [
-    {
-      id: "sarah",
-      name: "Sarah Chen",
-      username: "sarah_mindful",
-      journey: "Anxiety & Self-Care",
-      matchScore: 94,
-      isOnline: true,
-      bio: "Meditation enthusiast finding peace through mindfulness. Love hiking and nature therapy.",
-      location: "San Francisco, CA",
-      age: 28,
-      mentalHealthBadges: ["Anxiety", "Meditation", "Self-Care"],
-    },
-    {
-      id: "alex",
-      name: "Alex Rivera",
-      username: "alex_journey",
-      journey: "Depression Recovery",
-      matchScore: 89,
-      isOnline: false,
-      bio: "Artist using creativity to heal. Passionate about art therapy and emotional expression.",
-      location: "Austin, TX",
-      age: 32,
-      mentalHealthBadges: ["Depression", "Art Therapy", "Creative Expression"],
-    },
-    {
-      id: "emma",
-      name: "Emma Thompson",
-      username: "emma_wellness",
-      journey: "ADHD & Mindfulness",
-      matchScore: 92,
-      isOnline: true,
-      bio: "Yoga instructor helping others find focus and calm. ADHD advocate and wellness coach.",
-      location: "Portland, OR",
-      age: 26,
-      mentalHealthBadges: ["ADHD", "Yoga", "Mindfulness"],
-    },
-  ]
+  useEffect(() => {
+    const fetchMatches = async () => {
+      if (!user) return
 
-  const filteredMatches = matches.filter((match) => match.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      try {
+        // Fetch accepted matches with profile information
+        const { data: matchesData, error } = await supabase
+          .from("matches")
+          .select(`
+            *,
+            user1:profiles!matches_user1_id_fkey(id, username, full_name, bio, avatar_url, gender, location),
+            user2:profiles!matches_user2_id_fkey(id, username, full_name, bio, avatar_url, gender, location)
+          `)
+          .eq("status", "accepted")
+          .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
 
-  const startChat = (matchId: string) => {
-    // Navigate to chat page
-    window.location.href = `/messages/chat/${matchId}`
+        if (error) {
+          console.error("Error fetching matches:", error)
+          return
+        }
+
+        // Transform matches to get the other user's profile
+        const transformedMatches =
+          matchesData?.map((match) => {
+            const otherUser = match.user1_id === user.id ? match.user2 : match.user1
+            return {
+              id: otherUser.id,
+              name: otherUser.full_name || otherUser.username || "Unknown User",
+              username: otherUser.username || "unknown",
+              bio: otherUser.bio || "No bio available",
+              location: otherUser.location || "Location not specified",
+              avatar_url: otherUser.avatar_url,
+              gender: otherUser.gender,
+              journey: "Mental Health Journey", // You can add this to profiles table
+              matchScore: 85 + Math.floor(Math.random() * 15), // Random score for demo
+              isOnline: Math.random() > 0.5, // Random online status for demo
+            }
+          }) || []
+
+        setMatches(transformedMatches)
+      } catch (error) {
+        console.error("Error fetching matches:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchMatches()
+  }, [user, supabase])
+
+  const filteredMatches = matches.filter(
+    (match) =>
+      match.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      match.username.toLowerCase().includes(searchQuery.toLowerCase()),
+  )
+
+  const startChat = async (matchId: string) => {
+    if (!user) return
+
+    try {
+      // Check if conversation already exists
+      const { data: existingConversation } = await supabase
+        .from("conversation_participants")
+        .select("conversation_id")
+        .eq("user_id", user.id)
+        .in(
+          "conversation_id",
+          supabase.from("conversation_participants").select("conversation_id").eq("user_id", matchId),
+        )
+        .single()
+
+      if (existingConversation) {
+        // Navigate to existing conversation
+        window.location.href = `/messages/chat/${existingConversation.conversation_id}`
+        return
+      }
+
+      // Create new conversation
+      const { data: conversation, error: convError } = await supabase.from("conversations").insert({}).select().single()
+
+      if (convError) throw convError
+
+      // Add participants
+      const { error: participantsError } = await supabase.from("conversation_participants").insert([
+        { conversation_id: conversation.id, user_id: user.id },
+        { conversation_id: conversation.id, user_id: matchId },
+      ])
+
+      if (participantsError) throw participantsError
+
+      // Navigate to new conversation
+      window.location.href = `/messages/chat/${conversation.id}`
+    } catch (error) {
+      console.error("Error creating conversation:", error)
+      alert("Unable to start conversation. Please try again.")
+    }
   }
 
   const viewProfile = (matchId: string) => {
-    // Navigate to profile page
     window.location.href = `/profile/${matchId}`
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <p className="text-slate-500 dark:text-slate-400">Loading matches...</p>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
@@ -87,7 +154,9 @@ export default function MessagesPage() {
                 <div className="text-center text-slate-500 dark:text-slate-400 mt-8">
                   <Heart className="mx-auto h-12 w-12 mb-2 opacity-50" />
                   <h3 className="text-lg font-medium mb-2">No matches found</h3>
-                  <p className="text-sm">Try adjusting your search</p>
+                  <p className="text-sm">
+                    {matches.length === 0 ? "You don't have any matches yet" : "Try adjusting your search"}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -102,9 +171,17 @@ export default function MessagesPage() {
                       <div className="flex items-center space-x-3">
                         <div className="relative">
                           <Avatar className="h-12 w-12">
-                            <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                              {match.name.charAt(0)}
-                            </AvatarFallback>
+                            {match.avatar_url ? (
+                              <img
+                                src={match.avatar_url || "/placeholder.svg"}
+                                alt={match.name}
+                                className="w-full h-full object-cover rounded-full"
+                              />
+                            ) : (
+                              <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
+                                {match.name.charAt(0)}
+                              </AvatarFallback>
+                            )}
                           </Avatar>
                           {match.isOnline && (
                             <div className="absolute bottom-0 right-0 h-3 w-3 bg-green-500 border-2 border-white dark:border-slate-800 rounded-full"></div>
@@ -118,7 +195,7 @@ export default function MessagesPage() {
                             </Badge>
                           </div>
                           <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                            @{match.username} • {match.age} • {match.location}
+                            @{match.username} • {match.location}
                           </p>
                           <Badge variant="secondary" className="text-xs mb-2">
                             {match.journey}

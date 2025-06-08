@@ -9,82 +9,97 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MessageSquare, UserPlus, ArrowLeft, Heart, MapPin, Calendar } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
+import { useAuth } from "@/components/auth/auth-provider"
 
 export default function UserProfilePage() {
   const params = useParams()
   const router = useRouter()
   const userId = params.id as string
+  const { user } = useAuth()
+  const supabase = createClient()
 
   const [profile, setProfile] = useState<any>(null)
   const [loading, setLoading] = useState(true)
 
-  // Demo profile data
-  const demoProfiles = {
-    sarah: {
-      id: "sarah",
-      name: "Sarah Chen",
-      username: "sarah_mindful",
-      bio: "Meditation enthusiast finding peace through mindfulness. I've been on my mental health journey for 3 years and love sharing what I've learned. Nature therapy and hiking are my go-to activities for staying grounded.",
-      location: "San Francisco, CA",
-      age: 28,
-      journey: "Anxiety & Self-Care",
-      mentalHealthBadges: ["Anxiety", "Meditation", "Self-Care", "Nature Therapy"],
-      mentalHealthJourney:
-        "Started my journey with anxiety in college. Discovered meditation through a campus wellness program and it changed my life. Now I practice daily and help others find their calm.",
-      interests: ["Hiking", "Meditation", "Photography", "Yoga"],
-      lookingFor: "Supportive connections and meditation buddies",
-      isOnline: true,
-      joinedDate: "January 2024",
-    },
-    alex: {
-      id: "alex",
-      name: "Alex Rivera",
-      username: "alex_journey",
-      bio: "Artist using creativity to heal and express emotions. Art therapy has been transformative in my depression recovery. I believe in the power of creative expression to process difficult feelings.",
-      location: "Austin, TX",
-      age: 32,
-      journey: "Depression Recovery",
-      mentalHealthBadges: ["Depression", "Art Therapy", "Creative Expression", "Support Groups"],
-      mentalHealthJourney:
-        "Struggled with depression for years before finding art therapy. Creating art helps me process emotions and connect with others who understand the journey.",
-      interests: ["Painting", "Music", "Writing", "Photography"],
-      lookingFor: "Creative souls and supportive friends",
-      isOnline: false,
-      joinedDate: "March 2024",
-    },
-    emma: {
-      id: "emma",
-      name: "Emma Thompson",
-      username: "emma_wellness",
-      bio: "Yoga instructor and ADHD advocate helping others find focus and calm. I combine movement with mindfulness to create accessible wellness practices for neurodivergent minds.",
-      location: "Portland, OR",
-      age: 26,
-      journey: "ADHD & Mindfulness",
-      mentalHealthBadges: ["ADHD", "Yoga", "Mindfulness", "Body Positivity"],
-      mentalHealthJourney:
-        "Diagnosed with ADHD in my early twenties. Yoga and mindfulness practices have helped me embrace my neurodivergent brain and find focus in movement.",
-      interests: ["Yoga", "Dance", "Cooking", "Gardening"],
-      lookingFor: "Fellow neurodivergent friends and yoga enthusiasts",
-      isOnline: true,
-      joinedDate: "February 2024",
-    },
-  }
-
   useEffect(() => {
-    const profileData = demoProfiles[userId as keyof typeof demoProfiles]
-    if (profileData) {
-      setProfile(profileData)
-    }
-    setLoading(false)
-  }, [userId])
+    const fetchProfile = async () => {
+      try {
+        const { data: profileData, error } = await supabase.from("profiles").select("*").eq("id", userId).single()
 
-  const startConversation = () => {
-    router.push(`/messages/chat/${userId}`)
+        if (error) {
+          console.error("Error fetching profile:", error)
+          return
+        }
+
+        setProfile(profileData)
+      } catch (error) {
+        console.error("Error fetching profile:", error)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchProfile()
+  }, [userId, supabase])
+
+  const startConversation = async () => {
+    if (!user) return
+
+    try {
+      // Check if conversation already exists
+      const { data: existingConversation } = await supabase
+        .from("conversation_participants")
+        .select("conversation_id")
+        .eq("user_id", user.id)
+        .in(
+          "conversation_id",
+          supabase.from("conversation_participants").select("conversation_id").eq("user_id", userId),
+        )
+        .single()
+
+      if (existingConversation) {
+        router.push(`/messages/chat/${existingConversation.conversation_id}`)
+        return
+      }
+
+      // Create new conversation
+      const { data: conversation, error: convError } = await supabase.from("conversations").insert({}).select().single()
+
+      if (convError) throw convError
+
+      // Add participants
+      const { error: participantsError } = await supabase.from("conversation_participants").insert([
+        { conversation_id: conversation.id, user_id: user.id },
+        { conversation_id: conversation.id, user_id: userId },
+      ])
+
+      if (participantsError) throw participantsError
+
+      router.push(`/messages/chat/${conversation.id}`)
+    } catch (error) {
+      console.error("Error creating conversation:", error)
+      alert("Unable to start conversation. Please try again.")
+    }
   }
 
-  const connectWithUser = () => {
-    // Demo connection action
-    alert(`Connection request sent to ${profile.name}!`)
+  const connectWithUser = async () => {
+    if (!user) return
+
+    try {
+      const { error } = await supabase.from("matches").insert({
+        user1_id: user.id,
+        user2_id: userId,
+        status: "pending",
+      })
+
+      if (error) throw error
+
+      alert(`Connection request sent to ${profile.full_name || profile.username}!`)
+    } catch (error) {
+      console.error("Error sending connection request:", error)
+      alert("Unable to send connection request. Please try again.")
+    }
   }
 
   if (loading) {
@@ -125,31 +140,37 @@ export default function UserProfilePage() {
               <div className="flex flex-col md:flex-row md:items-center gap-6">
                 <div className="relative">
                   <Avatar className="h-24 w-24">
-                    <AvatarFallback className="text-2xl bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                      {profile.name.charAt(0)}
-                    </AvatarFallback>
+                    {profile.avatar_url ? (
+                      <img
+                        src={profile.avatar_url || "/placeholder.svg"}
+                        alt={profile.full_name || profile.username}
+                        className="w-full h-full object-cover rounded-full"
+                      />
+                    ) : (
+                      <AvatarFallback className="text-2xl bg-gradient-to-r from-rose-500 to-amber-500 text-white">
+                        {(profile.full_name || profile.username || "U").charAt(0)}
+                      </AvatarFallback>
+                    )}
                   </Avatar>
-                  {profile.isOnline && (
-                    <div className="absolute bottom-0 right-0 h-4 w-4 bg-green-500 border-2 border-white dark:border-slate-800 rounded-full"></div>
-                  )}
                 </div>
 
                 <div className="flex-1">
-                  <CardTitle className="text-2xl">{profile.name}</CardTitle>
+                  <CardTitle className="text-2xl">{profile.full_name || profile.username}</CardTitle>
                   <p className="text-slate-500 dark:text-slate-400">@{profile.username}</p>
                   <div className="flex items-center gap-4 mt-2 text-sm text-slate-600 dark:text-slate-300">
-                    <div className="flex items-center gap-1">
-                      <MapPin className="h-4 w-4" />
-                      {profile.location}
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Calendar className="h-4 w-4" />
-                      {profile.age} years old
-                    </div>
+                    {profile.location && (
+                      <div className="flex items-center gap-1">
+                        <MapPin className="h-4 w-4" />
+                        {profile.location}
+                      </div>
+                    )}
+                    {profile.gender && (
+                      <div className="flex items-center gap-1">
+                        <Calendar className="h-4 w-4" />
+                        {profile.gender}
+                      </div>
+                    )}
                   </div>
-                  <Badge variant="secondary" className="mt-2">
-                    {profile.journey}
-                  </Badge>
                 </div>
 
                 <div className="flex flex-wrap gap-2 mt-4 md:mt-0">
@@ -179,28 +200,16 @@ export default function UserProfilePage() {
                   <div className="space-y-6">
                     <div>
                       <h3 className="text-lg font-medium mb-2">Bio</h3>
-                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed">{profile.bio}</p>
+                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                        {profile.bio || "No bio available"}
+                      </p>
                     </div>
 
                     <div>
-                      <h3 className="text-lg font-medium mb-2">Looking For</h3>
-                      <p className="text-slate-600 dark:text-slate-300">{profile.lookingFor}</p>
-                    </div>
-
-                    <div>
-                      <h3 className="text-lg font-medium mb-2">Interests</h3>
-                      <div className="flex flex-wrap gap-2">
-                        {profile.interests.map((interest: string) => (
-                          <Badge key={interest} variant="outline">
-                            {interest}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div>
-                      <h3 className="text-lg font-medium mb-2">Member Since</h3>
-                      <p className="text-slate-600 dark:text-slate-300">{profile.joinedDate}</p>
+                      <h3 className="text-lg font-medium mb-2">Location</h3>
+                      <p className="text-slate-600 dark:text-slate-300">
+                        {profile.location || "Location not specified"}
+                      </p>
                     </div>
                   </div>
                 </TabsContent>
@@ -210,22 +219,17 @@ export default function UserProfilePage() {
                     <div>
                       <h3 className="text-lg font-medium mb-2">Mental Health Journey</h3>
                       <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
-                        {profile.mentalHealthJourney}
+                        {profile.mental_health_journey || "Mental health journey information not available"}
                       </p>
                     </div>
 
                     <div>
                       <h3 className="text-lg font-medium mb-2">Mental Health Focus Areas</h3>
                       <div className="flex flex-wrap gap-2">
-                        {profile.mentalHealthBadges.map((badge: string) => (
-                          <Badge
-                            key={badge}
-                            className="bg-rose-100 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300"
-                          >
-                            <Heart className="h-3 w-3 mr-1" />
-                            {badge}
-                          </Badge>
-                        ))}
+                        <Badge className="bg-rose-100 text-rose-700 dark:bg-rose-900/20 dark:text-rose-300">
+                          <Heart className="h-3 w-3 mr-1" />
+                          Mental Health Support
+                        </Badge>
                       </div>
                     </div>
                   </div>

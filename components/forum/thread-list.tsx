@@ -17,6 +17,7 @@ type Thread = {
   author: {
     id: string
     username: string
+    full_name: string
     avatar_url: string
   }
   reply_count: number
@@ -32,72 +33,44 @@ export function ThreadList({ category }: { category: string }) {
   useEffect(() => {
     const fetchThreads = async () => {
       try {
-        // In a real implementation, you would fetch this from the database
-        // For now, we'll use static data
-        const threadsData = [
-          {
-            id: "1",
-            title: "Coping with social anxiety at work",
-            content:
-              "I've been struggling with social anxiety at my new job. The team is great, but I freeze up during meetings. Has anyone found effective strategies for managing this in professional settings?",
-            created_at: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(), // 2 hours ago
-            author: {
-              id: "user1",
-              username: "Alex",
-              avatar_url: "/placeholder.svg?height=50&width=50",
-            },
-            reply_count: 8,
-            like_count: 24,
-            is_pinned: true,
-          },
-          {
-            id: "2",
-            title: "Anxiety management techniques that actually work",
-            content:
-              "After years of trial and error, I've found some techniques that help me manage my anxiety. Sharing in case they help others: 1) Box breathing 2) Grounding exercises 3) Regular exercise...",
-            created_at: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(), // 1 day ago
-            author: {
-              id: "user2",
-              username: "Jamie",
-              avatar_url: "/placeholder.svg?height=50&width=50",
-            },
-            reply_count: 17,
-            like_count: 56,
-            is_pinned: false,
-          },
-          {
-            id: "3",
-            title: "How to explain anxiety to a new partner",
-            content:
-              "I've started dating someone new and want to open up about my anxiety, but I'm not sure how to approach it. Any advice on timing and what to say?",
-            created_at: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(), // 3 hours ago
-            author: {
-              id: "user3",
-              username: "Taylor",
-              avatar_url: "/placeholder.svg?height=50&width=50",
-            },
-            reply_count: 14,
-            like_count: 32,
-            is_pinned: false,
-          },
-          {
-            id: "4",
-            title: "Small wins celebration thread!",
-            content:
-              "Let's celebrate our small victories! I'll start: I made it through a work presentation today without a panic attack for the first time in months. What's your win?",
-            created_at: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(), // 1 day ago
-            author: {
-              id: "user4",
-              username: "Jordan",
-              avatar_url: "/placeholder.svg?height=50&width=50",
-            },
-            reply_count: 42,
-            like_count: 78,
-            is_pinned: false,
-          },
-        ]
+        const { data: threadsData, error } = await supabase
+          .from("forum_threads")
+          .select(`
+            *,
+            author:profiles!forum_threads_author_id_fkey(id, username, full_name, avatar_url)
+          `)
+          .eq("category", category)
+          .order("is_pinned", { ascending: false })
+          .order("created_at", { ascending: false })
 
-        setThreads(threadsData)
+        if (error) {
+          console.error("Error fetching threads:", error)
+          return
+        }
+
+        // Get reply counts for each thread
+        const threadsWithCounts = await Promise.all(
+          (threadsData || []).map(async (thread) => {
+            const { count: replyCount } = await supabase
+              .from("forum_replies")
+              .select("*", { count: "exact", head: true })
+              .eq("thread_id", thread.id)
+
+            return {
+              ...thread,
+              reply_count: replyCount || 0,
+              like_count: Math.floor(Math.random() * 50), // Demo like count
+              author: {
+                id: thread.author.id,
+                username: thread.author.username || "Unknown",
+                full_name: thread.author.full_name || thread.author.username || "Unknown User",
+                avatar_url: thread.author.avatar_url,
+              },
+            }
+          }),
+        )
+
+        setThreads(threadsWithCounts)
       } catch (error) {
         console.error("Error fetching threads:", error)
       } finally {
@@ -130,11 +103,14 @@ export function ThreadList({ category }: { category: string }) {
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-3">
                   <Avatar>
-                    <AvatarImage src={thread.author.avatar_url || "/placeholder.svg"} alt={thread.author.username} />
-                    <AvatarFallback>{thread.author.username.charAt(0)}</AvatarFallback>
+                    {thread.author.avatar_url ? (
+                      <AvatarImage src={thread.author.avatar_url || "/placeholder.svg"} alt={thread.author.full_name} />
+                    ) : (
+                      <AvatarFallback>{thread.author.full_name.charAt(0)}</AvatarFallback>
+                    )}
                   </Avatar>
                   <div>
-                    <div className="font-medium">{thread.author.username}</div>
+                    <div className="font-medium">{thread.author.full_name}</div>
                     <div className="text-sm text-slate-500 dark:text-slate-400">
                       {formatDistanceToNow(new Date(thread.created_at), { addSuffix: true })}
                     </div>

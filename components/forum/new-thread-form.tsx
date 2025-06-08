@@ -30,14 +30,23 @@ export function NewThreadForm({ category }: { category: string }) {
     setSubmitting(true)
 
     try {
-      // In a real implementation, you would save this to the database
-      // For now, we'll just simulate a successful submission
+      const { data: thread, error: threadError } = await supabase
+        .from("forum_threads")
+        .insert({
+          title: title.trim(),
+          content: content.trim(),
+          category,
+          author_id: user.id,
+        })
+        .select()
+        .single()
 
-      // Simulate network delay
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      if (threadError) {
+        throw threadError
+      }
 
-      // Redirect to the category page
-      router.push(`/community/${category}`)
+      // Redirect to the new thread
+      router.push(`/community/${category}/${thread.id}`)
     } catch (err: any) {
       setError(err.message || "An error occurred while creating the thread")
       console.error(err)
