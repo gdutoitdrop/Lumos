@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -19,42 +19,9 @@ export function NewThreadForm({ category }: { category: string }) {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [profileId, setProfileId] = useState<string | null>(null)
   const { user } = useAuth()
   const router = useRouter()
   const supabase = createClient()
-
-  useEffect(() => {
-    const getProfileId = async () => {
-      if (!user) return
-
-      try {
-        // Try auth_id first
-        let { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
-
-        if (error || !data) {
-          // Try direct ID match
-          const { data: directData, error: directError } = await supabase
-            .from("profiles")
-            .select("id")
-            .eq("id", user.id)
-            .single()
-
-          if (!directError && directData) {
-            data = directData
-          }
-        }
-
-        if (data) {
-          setProfileId(data.id)
-        }
-      } catch (err) {
-        console.error("Error fetching profile:", err)
-      }
-    }
-
-    getProfileId()
-  }, [user, supabase])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -78,19 +45,13 @@ export function NewThreadForm({ category }: { category: string }) {
     setSubmitting(true)
 
     try {
-      console.log("Creating thread with user ID:", user.id, "profile ID:", profileId)
+      console.log("Creating thread with user ID:", user.id)
 
-      // Create the thread with both IDs for maximum compatibility
-      const threadData: any = {
+      const threadData = {
         title: title.trim(),
         content: content.trim(),
         category,
         author_id: user.id,
-      }
-
-      // Add profile_id if we have it
-      if (profileId) {
-        threadData.profile_id = profileId
       }
 
       console.log("Thread data:", threadData)
@@ -116,17 +77,7 @@ export function NewThreadForm({ category }: { category: string }) {
       }, 1000)
     } catch (err: any) {
       console.error("Final error:", err)
-
-      // Provide more specific error messages
-      if (err.message?.includes("author_id")) {
-        setError("There was an issue with your user account. Please try logging out and back in.")
-      } else if (err.message?.includes("profile_id")) {
-        setError("There was an issue with your profile. Please complete your profile setup first.")
-      } else if (err.message?.includes("permission")) {
-        setError("You don't have permission to create threads. Please contact support.")
-      } else {
-        setError(err.message || "An error occurred while creating the thread. Please try again.")
-      }
+      setError(err.message || "An error occurred while creating the thread. Please try again.")
     } finally {
       setSubmitting(false)
     }

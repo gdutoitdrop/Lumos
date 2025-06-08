@@ -18,46 +18,13 @@ export default function MessagesPage() {
   const [error, setError] = useState<string | null>(null)
   const { user } = useAuth()
   const supabase = createClient()
-  const [profileId, setProfileId] = useState<string | null>(null)
-
-  useEffect(() => {
-    const getProfileId = async () => {
-      if (!user) return
-
-      try {
-        // Try auth_id first
-        let { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
-
-        if (error || !data) {
-          // Try direct ID match
-          const { data: directData, error: directError } = await supabase
-            .from("profiles")
-            .select("id")
-            .eq("id", user.id)
-            .single()
-
-          if (!directError && directData) {
-            data = directData
-          }
-        }
-
-        if (data) {
-          setProfileId(data.id)
-        }
-      } catch (err) {
-        console.error("Error in getProfileId:", err)
-      }
-    }
-
-    getProfileId()
-  }, [user, supabase])
 
   useEffect(() => {
     const fetchMatches = async () => {
       if (!user) return
 
       try {
-        console.log("Fetching matches for user:", user.id, "profile:", profileId)
+        console.log("Fetching matches for user:", user.id)
 
         // Get matches where current user is involved
         const { data: matchesData, error } = await supabase
@@ -70,7 +37,7 @@ export default function MessagesPage() {
             match_score,
             created_at
           `)
-          .or(`user1_id.eq.${profileId || user.id},user2_id.eq.${profileId || user.id}`)
+          .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
           .eq("status", "accepted")
 
         if (error) {
@@ -88,8 +55,7 @@ export default function MessagesPage() {
 
         // Get the other user IDs
         const otherUserIds = matchesData.map((match) => {
-          const currentUserId = profileId || user.id
-          return match.user1_id === currentUserId ? match.user2_id : match.user1_id
+          return match.user1_id === user.id ? match.user2_id : match.user1_id
         })
 
         // Get profiles for other users
@@ -109,8 +75,7 @@ export default function MessagesPage() {
         // Transform matches with profile data
         const transformedMatches = matchesData
           .map((match) => {
-            const currentUserId = profileId || user.id
-            const otherUserId = match.user1_id === currentUserId ? match.user2_id : match.user1_id
+            const otherUserId = match.user1_id === user.id ? match.user2_id : match.user1_id
             const otherUser = profiles?.find((p) => p.id === otherUserId)
 
             if (!otherUser) return null
@@ -141,10 +106,8 @@ export default function MessagesPage() {
       }
     }
 
-    if (profileId || user) {
-      fetchMatches()
-    }
-  }, [user, supabase, profileId])
+    fetchMatches()
+  }, [user, supabase])
 
   const filteredMatches = matches.filter(
     (match) =>
@@ -158,13 +121,11 @@ export default function MessagesPage() {
     try {
       console.log("Starting chat with match ID:", matchId)
 
-      const currentUserId = profileId || user.id
-
       // Check if conversation already exists
       const { data: existingConversations, error: checkError } = await supabase
         .from("conversation_participants")
         .select("conversation_id")
-        .or(`user_id.eq.${user.id},profile_id.eq.${currentUserId}`)
+        .eq("user_id", user.id)
 
       if (checkError) {
         console.error("Error checking conversations:", checkError)
@@ -183,7 +144,7 @@ export default function MessagesPage() {
         const { data: matchParticipations, error: matchError } = await supabase
           .from("conversation_participants")
           .select("conversation_id")
-          .or(`user_id.eq.${matchId},profile_id.eq.${matchId}`)
+          .eq("user_id", matchId)
           .in("conversation_id", conversationIds)
 
         if (!matchError && matchParticipations && matchParticipations.length > 0) {
@@ -212,8 +173,8 @@ export default function MessagesPage() {
 
       // Add participants
       const participantsData = [
-        { conversation_id: conversation.id, user_id: user.id, profile_id: currentUserId },
-        { conversation_id: conversation.id, user_id: matchId, profile_id: matchId },
+        { conversation_id: conversation.id, user_id: user.id },
+        { conversation_id: conversation.id, user_id: matchId },
       ]
 
       const { error: participantsError } = await supabase.from("conversation_participants").insert(participantsData)
