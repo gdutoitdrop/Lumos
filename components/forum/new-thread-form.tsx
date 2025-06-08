@@ -29,9 +29,24 @@ export function NewThreadForm({ category }: { category: string }) {
       if (!user) return
 
       try {
-        const { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
+        // Try to get profile by auth_id first
+        let { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
 
-        if (error) throw error
+        if (error || !data) {
+          // If that fails, try by id directly
+          const { data: directData, error: directError } = await supabase
+            .from("profiles")
+            .select("id")
+            .eq("id", user.id)
+            .single()
+
+          if (directError) {
+            console.error("Error fetching profile:", directError)
+            return
+          }
+
+          data = directData
+        }
 
         if (data) {
           setProfileId(data.id)
@@ -46,60 +61,48 @@ export function NewThreadForm({ category }: { category: string }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!user || !profileId) return
+    if (!user) {
+      setError("You must be logged in to create a thread")
+      return
+    }
 
     setError(null)
     setSubmitting(true)
 
     try {
-      console.log("Creating thread with author_id:", user.id)
+      console.log("Creating thread with user ID:", user.id, "profile ID:", profileId)
 
-      // First try with author_id
-      try {
-        const { data: thread, error: threadError } = await supabase
-          .from("forum_threads")
-          .insert({
-            title: title.trim(),
-            content: content.trim(),
-            category,
-            author_id: user.id,
-          })
-          .select()
-          .single()
-
-        if (!threadError) {
-          router.push(`/community/${category}/${thread.id}`)
-          return
-        }
-
-        // If there's an error with author_id, we'll try with profile_id below
-        console.error("Error with author_id:", threadError)
-      } catch (err) {
-        console.error("Error with author_id approach:", err)
+      // Create the thread with both author_id and profile_id for maximum compatibility
+      const threadData: any = {
+        title: title.trim(),
+        content: content.trim(),
+        category,
+        author_id: user.id,
       }
 
-      // Try with profile_id if author_id failed
-      try {
-        const { data: thread, error: threadError } = await supabase
-          .from("forum_threads")
-          .insert({
-            title: title.trim(),
-            content: content.trim(),
-            category,
-            profile_id: profileId, // Try with profile_id instead
-          })
-          .select()
-          .single()
-
-        if (threadError) throw threadError
-
-        router.push(`/community/${category}/${thread.id}`)
-      } catch (err: any) {
-        throw err
+      // Add profile_id if we have it
+      if (profileId) {
+        threadData.profile_id = profileId
       }
+
+      const { data: thread, error: threadError } = await supabase
+        .from("forum_threads")
+        .insert(threadData)
+        .select()
+        .single()
+
+      if (threadError) {
+        console.error("Thread creation error:", threadError)
+        throw threadError
+      }
+
+      console.log("Thread created successfully:", thread)
+
+      // Redirect to the new thread
+      router.push(`/community/${category}/${thread.id}`)
     } catch (err: any) {
-      setError(err.message || "An error occurred while creating the thread")
       console.error("Final error:", err)
+      setError(err.message || "An error occurred while creating the thread. Please try again.")
     } finally {
       setSubmitting(false)
     }
@@ -135,6 +138,7 @@ export function NewThreadForm({ category }: { category: string }) {
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Enter a descriptive title for your thread"
               required
+              maxLength={255}
             />
           </div>
           <div className="space-y-2">
@@ -146,12 +150,13 @@ export function NewThreadForm({ category }: { category: string }) {
               placeholder="Share your thoughts, questions, or experiences..."
               rows={8}
               required
+              minLength={10}
             />
           </div>
           <Button
             type="submit"
             className="w-full bg-gradient-to-r from-rose-500 to-amber-500 text-white"
-            disabled={submitting || !title.trim() || !content.trim()}
+            disabled={submitting || !title.trim() || !content.trim() || content.trim().length < 10}
           >
             {submitting ? "Creating Thread..." : "Create Thread"}
           </Button>

@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Heart, X, MessageCircle, RefreshCw } from "lucide-react"
+import { Heart, X, MessageCircle, RefreshCw, User } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useRouter } from "next/navigation"
 import { generateMatches } from "@/app/actions"
@@ -175,6 +175,10 @@ export function MatchList() {
     }
   }
 
+  const viewProfile = (profileId: string) => {
+    router.push(`/profile/${profileId}`)
+  }
+
   if (loading) {
     return (
       <div className="text-center py-12">
@@ -268,7 +272,7 @@ export function MatchList() {
                     {match.matched_profile.bio || "No bio provided"}
                   </p>
 
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 mb-2">
                     <Button
                       onClick={() => handleRejectMatch(match.id)}
                       variant="outline"
@@ -285,6 +289,11 @@ export function MatchList() {
                       Accept
                     </Button>
                   </div>
+
+                  <Button onClick={() => viewProfile(match.matched_profile.id)} variant="outline" className="w-full">
+                    <User className="mr-2 h-4 w-4" />
+                    View Profile
+                  </Button>
                 </CardContent>
               </Card>
             ))}
@@ -357,12 +366,19 @@ export function MatchList() {
                     {match.matched_profile.bio || "No bio provided"}
                   </p>
 
-                  <Button
-                    onClick={() => router.push(`/messages`)}
-                    className="w-full bg-gradient-to-r from-rose-500 to-amber-500 text-white"
-                  >
-                    <MessageCircle className="mr-2 h-4 w-4" />
-                    Message
+                  <div className="flex gap-2 mb-2">
+                    <Button
+                      onClick={() => router.push(`/messages`)}
+                      className="flex-1 bg-gradient-to-r from-rose-500 to-amber-500 text-white"
+                    >
+                      <MessageCircle className="mr-2 h-4 w-4" />
+                      Message
+                    </Button>
+                  </div>
+
+                  <Button onClick={() => viewProfile(match.matched_profile.id)} variant="outline" className="w-full">
+                    <User className="mr-2 h-4 w-4" />
+                    View Profile
                   </Button>
                 </CardContent>
               </Card>
