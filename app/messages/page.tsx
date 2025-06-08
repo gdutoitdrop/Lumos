@@ -6,42 +6,60 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Search, MessageCircle, Heart } from "lucide-react"
+import { Search, MessageCircle, Heart, User } from "lucide-react"
 
 export default function MessagesPage() {
   const [searchQuery, setSearchQuery] = useState("")
 
   const matches = [
     {
-      id: "1",
+      id: "sarah",
       name: "Sarah Chen",
       username: "sarah_mindful",
       journey: "Anxiety & Self-Care",
       matchScore: 94,
       isOnline: true,
+      bio: "Meditation enthusiast finding peace through mindfulness. Love hiking and nature therapy.",
+      location: "San Francisco, CA",
+      age: 28,
+      mentalHealthBadges: ["Anxiety", "Meditation", "Self-Care"],
     },
     {
-      id: "2",
+      id: "alex",
       name: "Alex Rivera",
       username: "alex_journey",
       journey: "Depression Recovery",
       matchScore: 89,
       isOnline: false,
+      bio: "Artist using creativity to heal. Passionate about art therapy and emotional expression.",
+      location: "Austin, TX",
+      age: 32,
+      mentalHealthBadges: ["Depression", "Art Therapy", "Creative Expression"],
     },
     {
-      id: "3",
+      id: "emma",
       name: "Emma Thompson",
       username: "emma_wellness",
       journey: "ADHD & Mindfulness",
       matchScore: 92,
       isOnline: true,
+      bio: "Yoga instructor helping others find focus and calm. ADHD advocate and wellness coach.",
+      location: "Portland, OR",
+      age: 26,
+      mentalHealthBadges: ["ADHD", "Yoga", "Mindfulness"],
     },
   ]
 
   const filteredMatches = matches.filter((match) => match.name.toLowerCase().includes(searchQuery.toLowerCase()))
 
-  const startChat = (matchId: string, name: string) => {
+  const startChat = (matchId: string) => {
+    // Navigate to chat page
     window.location.href = `/messages/chat/${matchId}`
+  }
+
+  const viewProfile = (matchId: string) => {
+    // Navigate to profile page
+    window.location.href = `/profile/${matchId}`
   }
 
   return (
@@ -99,20 +117,27 @@ export default function MessagesPage() {
                               {match.matchScore}% Match
                             </Badge>
                           </div>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">@{match.username}</p>
-                          <Badge variant="secondary" className="text-xs">
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
+                            @{match.username} • {match.age} • {match.location}
+                          </p>
+                          <Badge variant="secondary" className="text-xs mb-2">
                             {match.journey}
                           </Badge>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 line-clamp-2">{match.bio}</p>
                         </div>
                       </div>
-                      <div className="mt-3">
+                      <div className="mt-3 flex gap-2">
                         <Button
                           size="sm"
-                          onClick={() => startChat(match.id, match.name)}
-                          className="w-full bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white"
+                          onClick={() => startChat(match.id)}
+                          className="flex-1 bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white"
                         >
                           <MessageCircle className="h-4 w-4 mr-2" />
-                          Message {match.name.split(" ")[0]}
+                          Message
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => viewProfile(match.id)}>
+                          <User className="h-4 w-4 mr-2" />
+                          Profile
                         </Button>
                       </div>
                     </div>

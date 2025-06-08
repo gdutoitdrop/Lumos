@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent } from "@/components/ui/card"
-import { Send, ArrowLeft, Phone, Video } from "lucide-react"
+import { Send, ArrowLeft, Phone, Video, User } from "lucide-react"
 
 // Demo matches data
 const demoMatches = {
@@ -80,6 +80,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<any[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [isTyping, setIsTyping] = useState(false)
+  const [isSending, setIsSending] = useState(false)
 
   // Initialize conversation
   useEffect(() => {
@@ -105,45 +106,54 @@ export default function ChatPage() {
   }, [messages])
 
   const handleSendMessage = async () => {
-    if (!newMessage.trim()) return
+    if (!newMessage.trim() || isSending) return
 
-    // Add user message immediately
-    const userMessage = {
-      id: Date.now(),
-      content: newMessage.trim(),
-      senderId: "current-user",
-      timestamp: new Date().toISOString(),
-      isCurrentUser: true,
-    }
+    setIsSending(true)
 
-    setMessages((prev) => [...prev, userMessage])
-    setNewMessage("")
+    try {
+      // Add user message immediately
+      const userMessage = {
+        id: Date.now(),
+        content: newMessage.trim(),
+        senderId: "current-user",
+        timestamp: new Date().toISOString(),
+        isCurrentUser: true,
+      }
 
-    // Show typing indicator
-    setIsTyping(true)
+      setMessages((prev) => [...prev, userMessage])
+      setNewMessage("")
 
-    // Simulate response after delay
-    setTimeout(
-      () => {
-        setIsTyping(false)
+      // Show typing indicator
+      setIsTyping(true)
 
-        const responses = demoResponses[matchId as keyof typeof demoResponses] || []
-        const randomResponse = responses[Math.floor(Math.random() * responses.length)]
+      // Simulate response after delay
+      setTimeout(
+        () => {
+          setIsTyping(false)
 
-        if (randomResponse) {
-          const botMessage = {
-            id: Date.now() + 1,
-            content: randomResponse,
-            senderId: matchId,
-            timestamp: new Date().toISOString(),
-            isCurrentUser: false,
+          const responses = demoResponses[matchId as keyof typeof demoResponses] || []
+          const randomResponse = responses[Math.floor(Math.random() * responses.length)]
+
+          if (randomResponse) {
+            const botMessage = {
+              id: Date.now() + 1,
+              content: randomResponse,
+              senderId: matchId,
+              timestamp: new Date().toISOString(),
+              isCurrentUser: false,
+            }
+
+            setMessages((prev) => [...prev, botMessage])
           }
-
-          setMessages((prev) => [...prev, botMessage])
-        }
-      },
-      2000 + Math.random() * 2000,
-    ) // 2-4 second delay
+        },
+        2000 + Math.random() * 2000,
+      ) // 2-4 second delay
+    } catch (error) {
+      console.error("Error sending message:", error)
+      alert("Unable to send message. Please try again.")
+    } finally {
+      setIsSending(false)
+    }
   }
 
   const formatTime = (timestamp: string) => {
@@ -151,6 +161,10 @@ export default function ChatPage() {
       hour: "2-digit",
       minute: "2-digit",
     })
+  }
+
+  const viewProfile = () => {
+    window.location.href = `/profile/${matchId}`
   }
 
   if (!match) {
@@ -176,7 +190,7 @@ export default function ChatPage() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
 
-          <Avatar className="h-10 w-10">
+          <Avatar className="h-10 w-10 cursor-pointer" onClick={viewProfile}>
             <AvatarImage src={match.avatar || "/placeholder.svg"} alt={match.name} />
             <AvatarFallback>{match.name.charAt(0)}</AvatarFallback>
           </Avatar>
@@ -192,6 +206,9 @@ export default function ChatPage() {
           </div>
 
           <div className="flex gap-2">
+            <Button variant="outline" size="icon" onClick={viewProfile}>
+              <User className="h-4 w-4" />
+            </Button>
             <Button variant="outline" size="icon">
               <Phone className="h-4 w-4" />
             </Button>
@@ -281,6 +298,7 @@ export default function ChatPage() {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               className="min-h-[60px] resize-none"
+              disabled={isSending}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault()
@@ -292,11 +310,12 @@ export default function ChatPage() {
               type="submit"
               size="icon"
               className="bg-gradient-to-r from-rose-500 to-amber-500 text-white"
-              disabled={!newMessage.trim()}
+              disabled={!newMessage.trim() || isSending}
             >
               <Send className="h-4 w-4" />
             </Button>
           </form>
+          {isSending && <p className="text-xs text-slate-500 mt-1">Sending message...</p>}
         </div>
       </div>
     </DashboardLayout>
