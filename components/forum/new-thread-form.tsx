@@ -25,6 +25,7 @@ export function NewThreadForm({ category }: { category: string }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
     if (!user) {
       setError("You must be logged in to create a thread")
       return
@@ -47,11 +48,17 @@ export function NewThreadForm({ category }: { category: string }) {
     try {
       console.log("Creating thread with user ID:", user.id)
 
+      // Get user's profile for author name
+      const { data: profile } = await supabase.from("profiles").select("full_name, username").eq("id", user.id).single()
+
+      const authorName = profile?.full_name || profile?.username || "Anonymous User"
+
       const threadData = {
         title: title.trim(),
         content: content.trim(),
         category,
         author_id: user.id,
+        author_name: authorName,
       }
 
       console.log("Thread data:", threadData)
@@ -64,7 +71,7 @@ export function NewThreadForm({ category }: { category: string }) {
 
       if (threadError) {
         console.error("Thread creation error:", threadError)
-        throw threadError
+        throw new Error(`Failed to create thread: ${threadError.message}`)
       }
 
       console.log("Thread created successfully:", thread)
@@ -74,7 +81,7 @@ export function NewThreadForm({ category }: { category: string }) {
       // Small delay to show success message
       setTimeout(() => {
         router.push(`/community/${category}/${thread.id}`)
-      }, 1000)
+      }, 1500)
     } catch (err: any) {
       console.error("Final error:", err)
       setError(err.message || "An error occurred while creating the thread. Please try again.")

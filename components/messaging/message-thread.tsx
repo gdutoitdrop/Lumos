@@ -1,26 +1,18 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect, useRef } from "react"
 import { useAuth } from "@/components/auth/auth-provider"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Send, User } from "lucide-react"
+import { Send } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface MessageThreadProps {
   conversationId: string
-}
-
-interface Profile {
-  id: string
-  username: string | null
-  full_name: string | null
-  bio: string | null
-  avatar_url: string | null
-  current_mood: string | null
-  location: string | null
 }
 
 interface Message {
@@ -30,7 +22,6 @@ interface Message {
   content: string
   is_read: boolean
   created_at: string
-  sender?: Profile
 }
 
 export function MessageThread({ conversationId }: MessageThreadProps) {
@@ -41,13 +32,13 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
   const [newMessage, setNewMessage] = useState("")
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
-  const [participant, setParticipant] = useState<Profile | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const fetchMessages = async () => {
-      if (!user || !conversationId) return
+      if (!conversationId) return
 
       setLoading(true)
       setError(null)
@@ -55,7 +46,6 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
       try {
         console.log("Fetching messages for conversation:", conversationId)
 
-        // Get all messages in the conversation
         const { data: messagesData, error: messagesError } = await supabase
           .from("messages")
           .select("*")
@@ -68,70 +58,8 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
           return
         }
 
-        console.log("Messages data:", messagesData)
-
-        // Get conversation participants
-        const { data: participants, error: participantsError } = await supabase
-          .from("conversation_participants")
-          .select("user_id")
-          .eq("conversation_id", conversationId)
-
-        if (participantsError) {
-          console.error("Error fetching participants:", participantsError)
-          setError("Could not load participants.")
-          return
-        }
-
-        console.log("Participants data:", participants)
-
-        // Find the other participant
-        const otherParticipant = participants?.find((p) => p.user_id !== user.id)
-
-        if (otherParticipant) {
-          // Get the other participant's profile
-          const { data: profile, error: profileError } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", otherParticipant.user_id)
-            .single()
-
-          if (!profileError && profile) {
-            setParticipant(profile)
-          }
-        }
-
-        // Get sender profiles for all messages
-        const senderIds = [...new Set(messagesData.map((m) => m.sender_id))]
-
-        if (senderIds.length > 0) {
-          const { data: profiles, error: profilesError } = await supabase
-            .from("profiles")
-            .select("*")
-            .in("id", senderIds)
-
-          if (!profilesError && profiles) {
-            // Combine messages with sender profiles
-            const messagesWithSenders = messagesData.map((message) => {
-              const sender = profiles.find((p) => p.id === message.sender_id)
-              return { ...message, sender }
-            })
-
-            setMessages(messagesWithSenders)
-          } else {
-            setMessages(messagesData)
-          }
-        } else {
-          setMessages(messagesData)
-        }
-
-        // Mark unread messages as read
-        const unreadMessages = messagesData.filter((m) => !m.is_read && m.sender_id !== user.id)
-
-        if (unreadMessages.length > 0) {
-          await Promise.all(
-            unreadMessages.map((message) => supabase.from("messages").update({ is_read: true }).eq("id", message.id)),
-          )
-        }
+        console.log("Messages loaded:", messagesData)
+        setMessages(messagesData || [])
       } catch (error) {
         console.error("Error in fetchMessages:", error)
         setError("An unexpected error occurred.")
@@ -153,19 +81,10 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
           table: "messages",
           filter: `conversation_id=eq.${conversationId}`,
         },
-        async (payload) => {
+        (payload) => {
+          console.log("New message received:", payload.new)
           const newMessage = payload.new as Message
-
-          // Get the sender's profile
-          const { data: sender } = await supabase.from("profiles").select("*").eq("id", newMessage.sender_id).single()
-
-          // Add the new message to the state
-          setMessages((prev) => [...prev, { ...newMessage, sender }])
-
-          // Mark as read if not from current user
-          if (newMessage.sender_id !== user.id) {
-            await supabase.from("messages").update({ is_read: true }).eq("id", newMessage.id)
-          }
+          setMessages((prev) => [...prev, newMessage])
         },
       )
       .subscribe()
@@ -173,18 +92,24 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
     return () => {
       supabase.removeChannel(messagesSubscription)
     }
-  }, [user, conversationId, supabase])
+  }, [conversationId, supabase])
 
   useEffect(() => {
     // Scroll to bottom when messages change
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  const handleSendMessage = async () => {
-    if (!user || !conversationId || !newMessage.trim()) return
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+
+    if (!user || !conversationId || !newMessage.trim()) {
+      setError("Please enter a message")
+      return
+    }
 
     setSending(true)
     setError(null)
+    setSuccess(null)
 
     try {
       console.log("Sending message:", {
@@ -193,22 +118,30 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
         content: newMessage.trim(),
       })
 
-      const { error } = await supabase.from("messages").insert({
-        conversation_id: conversationId,
-        sender_id: user.id,
-        content: newMessage.trim(),
-      })
+      const { data, error } = await supabase
+        .from("messages")
+        .insert({
+          conversation_id: conversationId,
+          sender_id: user.id,
+          content: newMessage.trim(),
+        })
+        .select()
 
       if (error) {
         console.error("Error sending message:", error)
-        setError("Failed to send message. Please try again.")
+        setError(`Failed to send message: ${error.message}`)
         return
       }
 
+      console.log("Message sent successfully:", data)
       setNewMessage("")
+      setSuccess("Message sent!")
+
+      // Clear success message after 2 seconds
+      setTimeout(() => setSuccess(null), 2000)
     } catch (error) {
       console.error("Error in handleSendMessage:", error)
-      setError("An unexpected error occurred.")
+      setError("An unexpected error occurred while sending the message.")
     } finally {
       setSending(false)
     }
@@ -244,12 +177,6 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
     return groups
   }
 
-  const viewProfile = () => {
-    if (participant) {
-      window.location.href = `/profile/${participant.id}`
-    }
-  }
-
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -260,31 +187,21 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
 
   return (
     <div className="h-full flex flex-col">
-      {participant && (
-        <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-          <div className="flex items-center">
-            <Avatar className="h-10 w-10 mr-3">
-              <AvatarImage src={participant.avatar_url || ""} alt={participant.username || ""} />
-              <AvatarFallback>{(participant.full_name || participant.username || "U").charAt(0)}</AvatarFallback>
-            </Avatar>
-            <div>
-              <h2 className="text-lg font-medium">{participant.full_name || participant.username}</h2>
-              {participant.current_mood && (
-                <p className="text-sm text-slate-500 dark:text-slate-400">{participant.current_mood}</p>
-              )}
-            </div>
-          </div>
-          <Button variant="outline" size="sm" onClick={viewProfile}>
-            <User className="h-4 w-4 mr-2" />
-            Profile
-          </Button>
-        </div>
-      )}
+      <div className="p-4 border-b border-slate-200 dark:border-slate-700">
+        <h2 className="text-lg font-medium">Conversation</h2>
+        <p className="text-sm text-slate-500 dark:text-slate-400">ID: {conversationId}</p>
+      </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {error && (
           <Alert variant="destructive">
             <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {success && (
+          <Alert className="border-green-200 bg-green-50 text-green-800">
+            <AlertDescription>{success}</AlertDescription>
           </Alert>
         )}
 
@@ -302,21 +219,16 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
               </div>
 
               {group.messages.map((message) => {
-                const isCurrentUser = message.sender_id === user.id
+                const isCurrentUser = message.sender_id === user?.id
 
                 return (
                   <div key={message.id} className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
                     <div
                       className={`flex ${isCurrentUser ? "flex-row-reverse" : "flex-row"} items-end gap-2 max-w-[80%]`}
                     >
-                      {!isCurrentUser && (
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={message.sender?.avatar_url || ""} alt={message.sender?.username || ""} />
-                          <AvatarFallback>
-                            {(message.sender?.full_name || message.sender?.username || "U").charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                      )}
+                      <Avatar className="h-8 w-8">
+                        <AvatarFallback>{isCurrentUser ? "You" : "U"}</AvatarFallback>
+                      </Avatar>
 
                       <div
                         className={`rounded-lg px-4 py-2 ${
@@ -343,13 +255,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
       </div>
 
       <div className="p-4 border-t border-slate-200 dark:border-slate-700">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            handleSendMessage()
-          }}
-          className="flex items-end gap-2"
-        >
+        <form onSubmit={handleSendMessage} className="flex items-end gap-2">
           <Textarea
             placeholder="Type your message..."
             value={newMessage}
@@ -361,6 +267,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
                 handleSendMessage()
               }
             }}
+            disabled={sending}
           />
           <Button
             type="submit"
@@ -371,6 +278,9 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
             <Send className="h-4 w-4" />
           </Button>
         </form>
+        <p className="text-xs text-slate-500 mt-2">
+          {sending ? "Sending..." : "Press Enter to send, Shift+Enter for new line"}
+        </p>
       </div>
     </div>
   )
