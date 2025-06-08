@@ -25,15 +25,45 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [participant, setParticipant] = useState<Profile | null>(null)
+  const [profileId, setProfileId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Get the current user's profile ID
+  useEffect(() => {
+    const getProfileId = async () => {
+      if (!user) return
+
+      try {
+        const { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
+
+        if (error) {
+          console.error("Error fetching profile:", error)
+          setError("Could not find your profile. Please try again later.")
+          return
+        }
+
+        setProfileId(data.id)
+      } catch (err) {
+        console.error("Error in getProfileId:", err)
+        setError("An unexpected error occurred. Please try again later.")
+      }
+    }
+
+    getProfileId()
+  }, [user, supabase])
 
   useEffect(() => {
     const fetchMessages = async () => {
-      if (!user || !conversationId) return
+      if (!user || !conversationId || !profileId) return
 
       setLoading(true)
+      setError(null)
 
       try {
+        console.log("Fetching messages for conversation:", conversationId)
+        console.log("Current user profile ID:", profileId)
+
         // Get all messages in the conversation
         const { data: messagesData, error: messagesError } = await supabase
           .from("messages")
@@ -41,16 +71,28 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
           .eq("conversation_id", conversationId)
           .order("created_at", { ascending: true })
 
-        if (messagesError) throw messagesError
+        if (messagesError) {
+          console.error("Error fetching messages:", messagesError)
+          setError("Could not load messages. Please try again later.")
+          return
+        }
+
+        console.log("Messages data:", messagesData)
 
         // Get the other participant
         const { data: participants, error: participantsError } = await supabase
           .from("conversation_participants")
           .select("profile_id")
           .eq("conversation_id", conversationId)
-          .neq("profile_id", user.id)
+          .neq("profile_id", profileId)
 
-        if (participantsError) throw participantsError
+        if (participantsError) {
+          console.error("Error fetching participants:", participantsError)
+          setError("Could not load conversation participants. Please try again later.")
+          return
+        }
+
+        console.log("Participants data:", participants)
 
         if (participants.length > 0) {
           const otherParticipantId = participants[0].profile_id
@@ -62,16 +104,31 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
             .eq("id", otherParticipantId)
             .single()
 
-          if (profileError) throw profileError
+          if (profileError) {
+            console.error("Error fetching participant profile:", profileError)
+            setError("Could not load participant profile. Please try again later.")
+            return
+          }
 
           setParticipant(profile)
         }
 
         // Get all senders' profiles
         const senderIds = [...new Set(messagesData.map((m) => m.profile_id))]
+
+        if (senderIds.length === 0) {
+          // No messages yet
+          setMessages([])
+          return
+        }
+
         const { data: profiles, error: profilesError } = await supabase.from("profiles").select("*").in("id", senderIds)
 
-        if (profilesError) throw profilesError
+        if (profilesError) {
+          console.error("Error fetching sender profiles:", profilesError)
+          setError("Could not load sender profiles. Please try again later.")
+          return
+        }
 
         // Combine messages with sender profiles
         const messagesWithSenders = messagesData.map((message) => {
@@ -82,7 +139,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
         setMessages(messagesWithSenders)
 
         // Mark unread messages as read
-        const unreadMessages = messagesData.filter((m) => !m.is_read && m.profile_id !== user.id)
+        const unreadMessages = messagesData.filter((m) => !m.is_read && m.profile_id !== profileId)
 
         if (unreadMessages.length > 0) {
           await Promise.all(
@@ -90,55 +147,58 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
           )
         }
       } catch (error) {
-        console.error("Error fetching messages:", error)
+        console.error("Error in fetchMessages:", error)
+        setError("An unexpected error occurred. Please try again later.")
       } finally {
         setLoading(false)
       }
     }
 
-    fetchMessages()
+    if (profileId) {
+      fetchMessages()
 
-    // Subscribe to new messages
-    const messagesSubscription = supabase
-      .channel(`messages-${conversationId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `conversation_id=eq.${conversationId}`,
-        },
-        async (payload) => {
-          const newMessage = payload.new as Message
+      // Subscribe to new messages
+      const messagesSubscription = supabase
+        .channel(`messages-${conversationId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "messages",
+            filter: `conversation_id=eq.${conversationId}`,
+          },
+          async (payload) => {
+            const newMessage = payload.new as Message
 
-          // Get the sender's profile
-          const { data: sender, error: senderError } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", newMessage.profile_id)
-            .single()
+            // Get the sender's profile
+            const { data: sender, error: senderError } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", newMessage.profile_id)
+              .single()
 
-          if (senderError) {
-            console.error("Error fetching sender:", senderError)
-            return
-          }
+            if (senderError) {
+              console.error("Error fetching sender:", senderError)
+              return
+            }
 
-          // Add the new message to the state
-          setMessages((prev) => [...prev, { ...newMessage, sender }])
+            // Add the new message to the state
+            setMessages((prev) => [...prev, { ...newMessage, sender }])
 
-          // Mark the message as read if it's not from the current user
-          if (newMessage.profile_id !== user.id) {
-            await supabase.from("messages").update({ is_read: true }).eq("id", newMessage.id)
-          }
-        },
-      )
-      .subscribe()
+            // Mark the message as read if it's not from the current user
+            if (newMessage.profile_id !== profileId) {
+              await supabase.from("messages").update({ is_read: true }).eq("id", newMessage.id)
+            }
+          },
+        )
+        .subscribe()
 
-    return () => {
-      supabase.removeChannel(messagesSubscription)
+      return () => {
+        supabase.removeChannel(messagesSubscription)
+      }
     }
-  }, [user, conversationId, supabase])
+  }, [user, conversationId, supabase, profileId])
 
   useEffect(() => {
     // Scroll to bottom when messages change
@@ -146,22 +206,34 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
   }, [messages])
 
   const handleSendMessage = async () => {
-    if (!user || !conversationId || !newMessage.trim()) return
+    if (!user || !conversationId || !newMessage.trim() || !profileId) return
 
     setSending(true)
+    setError(null)
 
     try {
-      const { error } = await supabase.from("messages").insert({
+      console.log("Sending message:", {
         conversation_id: conversationId,
-        profile_id: user.id,
+        profile_id: profileId,
         content: newMessage.trim(),
       })
 
-      if (error) throw error
+      const { error } = await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        profile_id: profileId,
+        content: newMessage.trim(),
+      })
+
+      if (error) {
+        console.error("Error sending message:", error)
+        setError("Failed to send message. Please try again.")
+        return
+      }
 
       setNewMessage("")
     } catch (error) {
-      console.error("Error sending message:", error)
+      console.error("Error in handleSendMessage:", error)
+      setError("An unexpected error occurred. Please try again later.")
     } finally {
       setSending(false)
     }
@@ -223,6 +295,12 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
       )}
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4">
+            <span className="block sm:inline">{error}</span>
+          </div>
+        )}
+
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <p className="text-slate-500 dark:text-slate-400">No messages yet. Start the conversation!</p>
@@ -236,8 +314,8 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
                 </span>
               </div>
 
-              {group.messages.map((message, messageIndex) => {
-                const isCurrentUser = message.profile_id === user?.id
+              {group.messages.map((message) => {
+                const isCurrentUser = message.profile_id === profileId
 
                 return (
                   <div key={message.id} className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
@@ -246,8 +324,8 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
                     >
                       {!isCurrentUser && (
                         <Avatar className="h-8 w-8">
-                          <AvatarImage src={message.sender.avatar_url || ""} alt={message.sender.username || ""} />
-                          <AvatarFallback>{message.sender.username?.charAt(0) || "U"}</AvatarFallback>
+                          <AvatarImage src={message.sender?.avatar_url || ""} alt={message.sender?.username || ""} />
+                          <AvatarFallback>{message.sender?.username?.charAt(0) || "U"}</AvatarFallback>
                         </Avatar>
                       )}
 
@@ -289,7 +367,6 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
             onChange={(e) => setNewMessage(e.target.value)}
             className="min-h-[80px] resize-none"
           />
-          <Button type="submit" size="icon" />
           <Button
             type="submit"
             size="icon"

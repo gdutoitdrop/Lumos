@@ -40,8 +40,9 @@ interface Profile {
   full_name: string | null
   avatar_url: string | null
   bio: string | null
-  connection_mode: string | null
-  subscription_tier: string | null
+  // Make these fields optional with undefined to handle missing columns
+  connection_mode?: string | null
+  subscription_tier?: string | null
 }
 
 interface DashboardLayoutProps {
@@ -56,35 +57,59 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
-  useEffect(() => {
-    const fetchProfile = async () => {
-      if (!user || profile) return
+  // Update the fetchProfile function to handle missing columns
+  const fetchProfile = async () => {
+    if (!user || profile) return
 
-      try {
-        setIsLoading(true)
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("id, username, full_name, avatar_url, bio, connection_mode, subscription_tier")
-          .eq("id", user.id)
-          .single()
+    try {
+      setIsLoading(true)
+      // First try to fetch only the columns we know exist
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, username, full_name, avatar_url, bio")
+        .eq("id", user.id)
+        .single()
 
-        if (error) {
-          if (error.code === "PGRST116") {
-            // Profile doesn't exist yet, which is fine for new users
-            console.log("Profile not found for user:", user.id)
-          } else {
-            console.error("Error fetching profile:", error)
-          }
+      if (error) {
+        if (error.code === "PGRST116") {
+          // Profile doesn't exist yet, which is fine for new users
+          console.log("Profile not found for user:", user.id)
         } else {
-          setProfile(data)
+          console.error("Error fetching profile:", error)
         }
-      } catch (error) {
-        console.error("Error in fetchProfile:", error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
+      } else {
+        // Set the basic profile data
+        setProfile(data)
 
+        // Try to fetch additional fields separately to handle missing columns
+        try {
+          const { data: extendedData } = await supabase
+            .from("profiles")
+            .select("connection_mode, subscription_tier")
+            .eq("id", user.id)
+            .single()
+
+          if (extendedData) {
+            // Update profile with additional fields if they exist
+            setProfile((prev) => ({
+              ...prev!,
+              connection_mode: extendedData.connection_mode,
+              subscription_tier: extendedData.subscription_tier,
+            }))
+          }
+        } catch (extendedError) {
+          console.log("Some extended profile fields might not exist in the database:", extendedError)
+          // Continue without the extended fields
+        }
+      }
+    } catch (error) {
+      console.error("Error in fetchProfile:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
     fetchProfile()
   }, [user, profile])
 

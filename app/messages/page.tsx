@@ -2,46 +2,83 @@
 
 import { useState, useEffect } from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Search, MessageCircle, Heart, User } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/components/auth/auth-provider"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export default function MessagesPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [matches, setMatches] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const { user } = useAuth()
   const supabase = createClient()
+  const [profileId, setProfileId] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetchMatches = async () => {
+    const getProfileId = async () => {
       if (!user) return
 
       try {
-        // Fetch accepted matches with profile information
+        const { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
+
+        if (error) {
+          console.error("Error fetching profile:", error)
+          setError("Could not find your profile. Please try again later.")
+          return
+        }
+
+        setProfileId(data.id)
+      } catch (err) {
+        console.error("Error in getProfileId:", err)
+        setError("An unexpected error occurred. Please try again later.")
+      }
+    }
+
+    getProfileId()
+  }, [user, supabase])
+
+  useEffect(() => {
+    const fetchMatches = async () => {
+      if (!user || !profileId) return
+
+      try {
+        console.log("Fetching matches for profile ID:", profileId)
+
+        // Fetch matches where the current user is either user1 or user2
         const { data: matchesData, error } = await supabase
           .from("matches")
           .select(`
-            *,
-            user1:profiles!matches_user1_id_fkey(id, username, full_name, bio, avatar_url, gender, location),
-            user2:profiles!matches_user2_id_fkey(id, username, full_name, bio, avatar_url, gender, location)
+            id,
+            user1_id,
+            user2_id,
+            status,
+            match_score,
+            profiles!matches_user1_id_fkey (id, username, full_name, bio, avatar_url, gender, location, current_mood),
+            profiles!matches_user2_id_fkey (id, username, full_name, bio, avatar_url, gender, location, current_mood)
           `)
+          .or(`user1_id.eq.${profileId},user2_id.eq.${profileId}`)
           .eq("status", "accepted")
-          .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
 
         if (error) {
           console.error("Error fetching matches:", error)
+          setError("Could not load your matches. Please try again later.")
           return
         }
+
+        console.log("Raw matches data:", matchesData)
 
         // Transform matches to get the other user's profile
         const transformedMatches =
           matchesData?.map((match) => {
-            const otherUser = match.user1_id === user.id ? match.user2 : match.user1
+            const isUser1 = match.user1_id === profileId
+            const otherUser = isUser1 ? match.profiles[0] : match.profiles[1]
+
             return {
               id: otherUser.id,
               name: otherUser.full_name || otherUser.username || "Unknown User",
@@ -50,68 +87,118 @@ export default function MessagesPage() {
               location: otherUser.location || "Location not specified",
               avatar_url: otherUser.avatar_url,
               gender: otherUser.gender,
-              journey: "Mental Health Journey", // You can add this to profiles table
-              matchScore: 85 + Math.floor(Math.random() * 15), // Random score for demo
+              current_mood: otherUser.current_mood,
+              journey: otherUser.current_mood || "Mental Health Journey",
+              matchScore: match.match_score ? Math.round(match.match_score * 100) : 85,
               isOnline: Math.random() > 0.5, // Random online status for demo
             }
           }) || []
 
+        console.log("Transformed matches:", transformedMatches)
         setMatches(transformedMatches)
       } catch (error) {
-        console.error("Error fetching matches:", error)
+        console.error("Error in fetchMatches:", error)
+        setError("An unexpected error occurred. Please try again later.")
       } finally {
         setLoading(false)
       }
     }
 
-    fetchMatches()
-  }, [user, supabase])
+    if (profileId) {
+      fetchMatches()
+    }
+  }, [user, supabase, profileId])
 
   const filteredMatches = matches.filter(
     (match) =>
       match.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      match.username.toLowerCase().includes(searchQuery.toLowerCase()),
+      (match.username && match.username.toLowerCase().includes(searchQuery.toLowerCase())),
   )
 
   const startChat = async (matchId: string) => {
-    if (!user) return
+    if (!user || !profileId) return
 
     try {
+      console.log("Starting chat with match ID:", matchId)
+      console.log("Current user profile ID:", profileId)
+
       // Check if conversation already exists
-      const { data: existingConversation } = await supabase
+      const { data: existingConversations, error: checkError } = await supabase
         .from("conversation_participants")
         .select("conversation_id")
-        .eq("user_id", user.id)
-        .in(
-          "conversation_id",
-          supabase.from("conversation_participants").select("conversation_id").eq("user_id", matchId),
-        )
-        .single()
+        .eq("profile_id", profileId)
 
-      if (existingConversation) {
+      if (checkError) {
+        console.error("Error checking existing conversations:", checkError)
+        setError("Could not check existing conversations. Please try again later.")
+        return
+      }
+
+      console.log("Existing conversations:", existingConversations)
+
+      // Find conversations where the match is also a participant
+      let existingConversationId = null
+
+      if (existingConversations && existingConversations.length > 0) {
+        const conversationIds = existingConversations.map((c) => c.conversation_id)
+
+        const { data: matchParticipations, error: matchError } = await supabase
+          .from("conversation_participants")
+          .select("conversation_id")
+          .eq("profile_id", matchId)
+          .in("conversation_id", conversationIds)
+
+        if (matchError) {
+          console.error("Error checking match participations:", matchError)
+          setError("Could not check match participations. Please try again later.")
+          return
+        }
+
+        console.log("Match participations:", matchParticipations)
+
+        if (matchParticipations && matchParticipations.length > 0) {
+          existingConversationId = matchParticipations[0].conversation_id
+        }
+      }
+
+      if (existingConversationId) {
         // Navigate to existing conversation
-        window.location.href = `/messages/chat/${existingConversation.conversation_id}`
+        console.log("Navigating to existing conversation:", existingConversationId)
+        window.location.href = `/messages/chat/${existingConversationId}`
         return
       }
 
       // Create new conversation
+      console.log("Creating new conversation")
       const { data: conversation, error: convError } = await supabase.from("conversations").insert({}).select().single()
 
-      if (convError) throw convError
+      if (convError) {
+        console.error("Error creating conversation:", convError)
+        setError("Could not create a new conversation. Please try again later.")
+        return
+      }
+
+      console.log("New conversation created:", conversation)
 
       // Add participants
       const { error: participantsError } = await supabase.from("conversation_participants").insert([
-        { conversation_id: conversation.id, user_id: user.id },
-        { conversation_id: conversation.id, user_id: matchId },
+        { conversation_id: conversation.id, profile_id: profileId },
+        { conversation_id: conversation.id, profile_id: matchId },
       ])
 
-      if (participantsError) throw participantsError
+      if (participantsError) {
+        console.error("Error adding participants:", participantsError)
+        setError("Could not add participants to the conversation. Please try again later.")
+        return
+      }
+
+      console.log("Participants added successfully")
 
       // Navigate to new conversation
       window.location.href = `/messages/chat/${conversation.id}`
     } catch (error) {
-      console.error("Error creating conversation:", error)
-      alert("Unable to start conversation. Please try again.")
+      console.error("Error in startChat:", error)
+      setError("An unexpected error occurred. Please try again later.")
     }
   }
 
@@ -148,6 +235,13 @@ export default function MessagesPage() {
               </div>
             </div>
 
+            {/* Error message */}
+            {error && (
+              <Alert variant="destructive" className="m-4">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+
             {/* Matches List */}
             <div className="flex-1 overflow-y-auto p-4">
               {filteredMatches.length === 0 ? (
@@ -172,11 +266,7 @@ export default function MessagesPage() {
                         <div className="relative">
                           <Avatar className="h-12 w-12">
                             {match.avatar_url ? (
-                              <img
-                                src={match.avatar_url || "/placeholder.svg"}
-                                alt={match.name}
-                                className="w-full h-full object-cover rounded-full"
-                              />
+                              <AvatarImage src={match.avatar_url || "/placeholder.svg"} alt={match.name} />
                             ) : (
                               <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
                                 {match.name.charAt(0)}

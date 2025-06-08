@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -18,38 +18,88 @@ export function NewThreadForm({ category }: { category: string }) {
   const [content, setContent] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [profileId, setProfileId] = useState<string | null>(null)
   const { user } = useAuth()
   const router = useRouter()
   const supabase = createClient()
 
+  useEffect(() => {
+    // Get the user's profile ID
+    const getProfileId = async () => {
+      if (!user) return
+
+      try {
+        const { data, error } = await supabase.from("profiles").select("id").eq("auth_id", user.id).single()
+
+        if (error) throw error
+
+        if (data) {
+          setProfileId(data.id)
+        }
+      } catch (err) {
+        console.error("Error fetching profile:", err)
+      }
+    }
+
+    getProfileId()
+  }, [user, supabase])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!user) return
+    if (!user || !profileId) return
 
     setError(null)
     setSubmitting(true)
 
     try {
-      const { data: thread, error: threadError } = await supabase
-        .from("forum_threads")
-        .insert({
-          title: title.trim(),
-          content: content.trim(),
-          category,
-          author_id: user.id,
-        })
-        .select()
-        .single()
+      console.log("Creating thread with author_id:", user.id)
 
-      if (threadError) {
-        throw threadError
+      // First try with author_id
+      try {
+        const { data: thread, error: threadError } = await supabase
+          .from("forum_threads")
+          .insert({
+            title: title.trim(),
+            content: content.trim(),
+            category,
+            author_id: user.id,
+          })
+          .select()
+          .single()
+
+        if (!threadError) {
+          router.push(`/community/${category}/${thread.id}`)
+          return
+        }
+
+        // If there's an error with author_id, we'll try with profile_id below
+        console.error("Error with author_id:", threadError)
+      } catch (err) {
+        console.error("Error with author_id approach:", err)
       }
 
-      // Redirect to the new thread
-      router.push(`/community/${category}/${thread.id}`)
+      // Try with profile_id if author_id failed
+      try {
+        const { data: thread, error: threadError } = await supabase
+          .from("forum_threads")
+          .insert({
+            title: title.trim(),
+            content: content.trim(),
+            category,
+            profile_id: profileId, // Try with profile_id instead
+          })
+          .select()
+          .single()
+
+        if (threadError) throw threadError
+
+        router.push(`/community/${category}/${thread.id}`)
+      } catch (err: any) {
+        throw err
+      }
     } catch (err: any) {
       setError(err.message || "An error occurred while creating the thread")
-      console.error(err)
+      console.error("Final error:", err)
     } finally {
       setSubmitting(false)
     }
