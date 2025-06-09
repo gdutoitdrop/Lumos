@@ -7,7 +7,7 @@ import { useAuth } from "@/components/auth/auth-provider"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Send, CheckCircle } from "lucide-react"
+import { Send, CheckCircle, ArrowLeft, AlertCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
@@ -36,14 +36,20 @@ export function SimpleMessageThread({ conversationId, matchId }: MessageThreadPr
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState<string>("")
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const fetchMessages = async () => {
-      if (!conversationId) return
+      if (!conversationId || !user) {
+        setError("Missing conversation ID or user not logged in")
+        setLoading(false)
+        return
+      }
 
       setLoading(true)
       setError(null)
+      setDebugInfo(`Conversation ID: ${conversationId}\nUser ID: ${user.id}`)
 
       try {
         console.log("Fetching messages for conversation:", conversationId)
@@ -56,15 +62,18 @@ export function SimpleMessageThread({ conversationId, matchId }: MessageThreadPr
 
         if (messagesError) {
           console.error("Error fetching messages:", messagesError)
-          setError("Could not load messages.")
+          setError(`Could not load messages: ${messagesError.message}`)
+          setDebugInfo((prev) => prev + `\nMessages Error: ${messagesError.message}`)
           return
         }
 
         console.log("Messages loaded:", messagesData)
         setMessages(messagesData || [])
+        setDebugInfo((prev) => prev + `\nMessages found: ${messagesData?.length || 0}`)
       } catch (error) {
         console.error("Error in fetchMessages:", error)
         setError("An unexpected error occurred while loading messages.")
+        setDebugInfo((prev) => prev + `\nGeneral Error: ${error}`)
       } finally {
         setLoading(false)
       }
@@ -94,7 +103,7 @@ export function SimpleMessageThread({ conversationId, matchId }: MessageThreadPr
     return () => {
       supabase.removeChannel(messagesSubscription)
     }
-  }, [conversationId, supabase])
+  }, [conversationId, supabase, user])
 
   useEffect(() => {
     // Scroll to bottom when messages change
@@ -135,6 +144,7 @@ export function SimpleMessageThread({ conversationId, matchId }: MessageThreadPr
       if (error) {
         console.error("Error sending message:", error)
         setError(`Failed to send message: ${error.message}`)
+        setDebugInfo((prev) => prev + `\nSend Error: ${error.message}`)
         return
       }
 
@@ -153,6 +163,7 @@ export function SimpleMessageThread({ conversationId, matchId }: MessageThreadPr
     } catch (error) {
       console.error("Error in handleSendMessage:", error)
       setError("An unexpected error occurred while sending the message.")
+      setDebugInfo((prev) => prev + `\nSend General Error: ${error}`)
     } finally {
       setSending(false)
     }
@@ -202,26 +213,54 @@ export function SimpleMessageThread({ conversationId, matchId }: MessageThreadPr
   return (
     <div className="h-full flex flex-col bg-white dark:bg-slate-900">
       {/* Header */}
-      <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-rose-50 to-amber-50 dark:from-slate-800 dark:to-slate-700">
-        <h2 className="text-lg font-medium text-slate-800 dark:text-white">Conversation</h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">ID: {conversationId.slice(0, 8)}...</p>
+      <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-rose-50 to-amber-50 dark:from-slate-800 dark:to-slate-700 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => (window.location.href = "/messages")}
+            className="flex-shrink-0"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h2 className="text-lg font-medium text-slate-800 dark:text-white">Conversation</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">ID: {conversationId.slice(0, 8)}...</p>
+          </div>
+        </div>
       </div>
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      {/* Error and Success Messages */}
+      <div className="flex-shrink-0">
         {error && (
-          <Alert variant="destructive">
+          <Alert variant="destructive" className="m-4">
+            <AlertCircle className="h-4 w-4" />
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
 
         {success && (
-          <Alert className="border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900 dark:text-green-200">
+          <Alert className="m-4 border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900 dark:text-green-200">
             <CheckCircle className="h-4 w-4" />
             <AlertDescription>{success}</AlertDescription>
           </Alert>
         )}
 
+        {/* Debug info for development */}
+        {debugInfo && (
+          <Alert className="m-4">
+            <AlertDescription>
+              <details>
+                <summary className="cursor-pointer text-sm">Debug Info</summary>
+                <pre className="text-xs mt-2 whitespace-pre-wrap">{debugInfo}</pre>
+              </details>
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
+
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {messages.length === 0 ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">
@@ -290,7 +329,7 @@ export function SimpleMessageThread({ conversationId, matchId }: MessageThreadPr
       </div>
 
       {/* Message Input */}
-      <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+      <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex-shrink-0">
         <form onSubmit={handleSendMessage} className="flex items-end gap-3">
           <div className="flex-1">
             <Textarea
@@ -310,7 +349,7 @@ export function SimpleMessageThread({ conversationId, matchId }: MessageThreadPr
           <Button
             type="submit"
             size="icon"
-            className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white h-12 w-12 rounded-xl shadow-md"
+            className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white h-12 w-12 rounded-xl shadow-md flex-shrink-0"
             disabled={sending || !newMessage.trim()}
           >
             {sending ? (
