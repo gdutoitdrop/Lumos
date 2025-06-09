@@ -21,6 +21,7 @@ export default function MessagesPage() {
   const [creating, setCreating] = useState(false)
   const { user } = useAuth()
   const supabase = createClient()
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -32,133 +33,40 @@ export default function MessagesPage() {
 
         // Fetch matches with better error handling
         const { data: matchesData, error: matchesError } = await supabase
-          .from("matches")
+          .from("profiles")
           .select(`
         id,
-        user1_id,
-        user2_id,
-        status,
-        match_score,
-        created_at
+        username,
+        full_name,
+        avatar_url,
+        bio,
+        location,
+        current_mood
       `)
-          .or(`user1_id.eq.${user.id},user2_id.eq.${user.id}`)
-          .eq("status", "accepted")
+          .neq("id", user.id)
 
         if (matchesError) {
           console.error("Error fetching matches:", matchesError)
-          // Don't set error here, just log it - we'll show sample data instead
+          setError("Could not load matches.")
+          return
         }
 
         // Fetch conversations
         const { data: conversationsData, error: conversationsError } = await supabase
-          .from("conversations")
+          .from("user_conversations")
           .select("*")
+          .or(`participant_1.eq.${user.id},participant_2.eq.${user.id}`)
           .order("updated_at", { ascending: false })
 
         if (conversationsError) {
           console.error("Error fetching conversations:", conversationsError)
         }
 
-        // Process matches data or create sample data if none exist
-        if (matchesData && matchesData.length > 0) {
-          const otherUserIds = matchesData.map((match) => {
-            return match.user1_id === user.id ? match.user2_id : match.user1_id
-          })
-
-          const { data: profiles } = await supabase.from("profiles").select("*").in("id", otherUserIds)
-
-          const transformedMatches = matchesData
-            .map((match) => {
-              const otherUserId = match.user1_id === user.id ? match.user2_id : match.user1_id
-              const otherUser = profiles?.find((p) => p.id === otherUserId)
-
-              if (!otherUser) return null
-
-              return {
-                id: otherUser.id,
-                name: otherUser.full_name || otherUser.username || "Unknown User",
-                username: otherUser.username || "unknown",
-                bio: otherUser.bio || "No bio available",
-                location: otherUser.location || "Location not specified",
-                avatar_url: otherUser.avatar_url,
-                current_mood: otherUser.current_mood,
-                journey: otherUser.current_mood || "Mental Health Journey",
-                matchScore: match.match_score ? Math.round(match.match_score * 100) : 85,
-                isOnline: Math.random() > 0.5,
-                lastSeen: "2 hours ago",
-              }
-            })
-            .filter(Boolean)
-
-          setMatches(transformedMatches)
-        } else {
-          // Create sample matches for demo purposes
-          const sampleMatches = [
-            {
-              id: "sample-1",
-              name: "Sarah Johnson",
-              username: "sarah_j",
-              bio: "Mental health advocate and yoga instructor. Love connecting with like-minded people on their wellness journey.",
-              location: "San Francisco, CA",
-              avatar_url: null,
-              current_mood: "Optimistic",
-              journey: "Anxiety Support",
-              matchScore: 92,
-              isOnline: true,
-              lastSeen: "Online now",
-            },
-            {
-              id: "sample-2",
-              name: "Alex Chen",
-              username: "alex_mindful",
-              bio: "Meditation practitioner and mental health peer supporter. Here to listen and share experiences.",
-              location: "Seattle, WA",
-              avatar_url: null,
-              current_mood: "Peaceful",
-              journey: "Depression Recovery",
-              matchScore: 88,
-              isOnline: false,
-              lastSeen: "1 hour ago",
-            },
-            {
-              id: "sample-3",
-              name: "Maya Patel",
-              username: "maya_wellness",
-              bio: "Therapist and wellness coach. Passionate about creating safe spaces for mental health conversations.",
-              location: "Austin, TX",
-              avatar_url: null,
-              current_mood: "Supportive",
-              journey: "Professional Support",
-              matchScore: 95,
-              isOnline: true,
-              lastSeen: "Online now",
-            },
-          ]
-          setMatches(sampleMatches)
-        }
-
+        setMatches(matchesData || [])
         setConversations(conversationsData || [])
       } catch (error) {
         console.error("Error fetching data:", error)
-        setError("Could not load data. Showing sample matches for demo.")
-
-        // Still show sample data even on error
-        const sampleMatches = [
-          {
-            id: "sample-1",
-            name: "Sarah Johnson",
-            username: "sarah_j",
-            bio: "Mental health advocate and yoga instructor. Love connecting with like-minded people on their wellness journey.",
-            location: "San Francisco, CA",
-            avatar_url: null,
-            current_mood: "Optimistic",
-            journey: "Anxiety Support",
-            matchScore: 92,
-            isOnline: true,
-            lastSeen: "Online now",
-          },
-        ]
-        setMatches(sampleMatches)
+        setError("Could not load data.")
       } finally {
         setLoading(false)
       }
@@ -169,8 +77,8 @@ export default function MessagesPage() {
 
   const filteredMatches = matches.filter(
     (match) =>
-      match.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (match.username && match.username.toLowerCase().includes(searchQuery.toLowerCase())),
+      match.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      match.username.toLowerCase().includes(searchQuery.toLowerCase()),
   )
 
   const startChat = async (matchId: string) => {
@@ -180,32 +88,19 @@ export default function MessagesPage() {
       setCreating(true)
       console.log("Starting chat with match ID:", matchId)
 
-      // Handle sample matches differently
-      if (matchId.startsWith("sample-")) {
-        setError("This is a demo match. Real messaging will be available once you have actual matches!")
-        return
-      }
-
-      // Create new conversation for real matches
-      const { data: conversation, error: convError } = await supabase.from("conversations").insert({}).select().single()
+      // Create new conversation
+      const { data: conversation, error: convError } = await supabase
+        .from("user_conversations")
+        .insert({
+          participant_1: user.id,
+          participant_2: matchId,
+        })
+        .select()
+        .single()
 
       if (convError) {
         console.error("Error creating conversation:", convError)
         setError("Could not create conversation.")
-        return
-      }
-
-      // Add participants
-      const participantsData = [
-        { conversation_id: conversation.id, user_id: user.id },
-        { conversation_id: conversation.id, user_id: matchId },
-      ]
-
-      const { error: participantsError } = await supabase.from("conversation_participants").insert(participantsData)
-
-      if (participantsError) {
-        console.error("Error adding participants:", participantsError)
-        setError("Could not add participants.")
         return
       }
 
@@ -226,20 +121,17 @@ export default function MessagesPage() {
     setError(null)
 
     try {
-      const { data: conversation, error: convError } = await supabase.from("conversations").insert({}).select().single()
+      const { data: conversation, error: convError } = await supabase
+        .from("user_conversations")
+        .insert({
+          participant_1: user.id,
+          participant_2: "22222222-2222-2222-2222-222222222222", // Sample user
+        })
+        .select()
+        .single()
 
       if (convError) {
         setError("Could not create conversation.")
-        return
-      }
-
-      const { error: participantError } = await supabase.from("conversation_participants").insert({
-        conversation_id: conversation.id,
-        user_id: user.id,
-      })
-
-      if (participantError) {
-        setError("Could not add participant.")
         return
       }
 
@@ -252,28 +144,11 @@ export default function MessagesPage() {
   }
 
   const viewProfile = (matchId: string) => {
-    if (matchId.startsWith("sample-")) {
-      setError("This is a demo profile. Real profiles will be available once you have actual matches!")
-      return
-    }
     window.location.href = `/profile/${matchId}`
   }
 
   const openConversation = (conversationId: string) => {
     window.location.href = `/messages/chat/${conversationId}`
-  }
-
-  if (loading) {
-    return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
-            <p className="text-slate-500 dark:text-slate-400">Loading your matches and conversations...</p>
-          </div>
-        </div>
-      </DashboardLayout>
-    )
   }
 
   return (
