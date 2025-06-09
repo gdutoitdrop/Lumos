@@ -32,45 +32,53 @@ export class WebRTCService {
   }
 
   private setupPeerConnection() {
-    const configuration = {
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }],
-    }
-
-    this.peerConnection = new RTCPeerConnection(configuration)
-
-    this.peerConnection.onicecandidate = (event) => {
-      if (event.candidate && this.currentCallId) {
-        this.sendSignal({
-          type: "ice-candidate",
-          callId: this.currentCallId,
-          fromUserId: "",
-          toUserId: "",
-          callType: "video",
-          data: event.candidate,
-        })
+    try {
+      const configuration = {
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }],
       }
-    }
 
-    this.peerConnection.ontrack = (event) => {
-      this.remoteStream = event.streams[0]
-      if (this.onRemoteStream) {
-        this.onRemoteStream(this.remoteStream)
-      }
-    }
+      this.peerConnection = new RTCPeerConnection(configuration)
 
-    this.peerConnection.onconnectionstatechange = () => {
-      console.log("Connection state:", this.peerConnection?.connectionState)
-      if (
-        this.peerConnection?.connectionState === "disconnected" ||
-        this.peerConnection?.connectionState === "failed"
-      ) {
-        this.endCall()
+      this.peerConnection.onicecandidate = (event) => {
+        if (event.candidate && this.currentCallId) {
+          this.sendSignal({
+            type: "ice-candidate",
+            callId: this.currentCallId,
+            fromUserId: "",
+            toUserId: "",
+            callType: "video",
+            data: event.candidate,
+          })
+        }
       }
+
+      this.peerConnection.ontrack = (event) => {
+        this.remoteStream = event.streams[0]
+        if (this.onRemoteStream) {
+          this.onRemoteStream(this.remoteStream)
+        }
+      }
+
+      this.peerConnection.onconnectionstatechange = () => {
+        console.log("Connection state:", this.peerConnection?.connectionState)
+        if (
+          this.peerConnection?.connectionState === "disconnected" ||
+          this.peerConnection?.connectionState === "failed"
+        ) {
+          this.endCall()
+        }
+      }
+    } catch (error) {
+      console.error("Error setting up peer connection:", error)
     }
   }
 
   async getMediaDevices(): Promise<MediaDevices> {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        return { videoDevices: [], audioDevices: [] }
+      }
+
       const devices = await navigator.mediaDevices.enumerateDevices()
       return {
         videoDevices: devices.filter((device) => device.kind === "videoinput"),
@@ -84,6 +92,10 @@ export class WebRTCService {
 
   async startCall(toUserId: string, callType: "video" | "audio"): Promise<string> {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Media devices not supported")
+      }
+
       this.currentCallId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       this.isInitiator = true
 
@@ -96,11 +108,13 @@ export class WebRTCService {
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints)
 
       // Add tracks to peer connection
-      this.localStream.getTracks().forEach((track) => {
-        if (this.peerConnection && this.localStream) {
-          this.peerConnection.addTrack(track, this.localStream)
-        }
-      })
+      if (this.peerConnection && this.localStream) {
+        this.localStream.getTracks().forEach((track) => {
+          if (this.peerConnection && this.localStream) {
+            this.peerConnection.addTrack(track, this.localStream)
+          }
+        })
+      }
 
       // Send call start signal
       await this.sendSignal({
@@ -112,18 +126,20 @@ export class WebRTCService {
       })
 
       // Create offer
-      const offer = await this.peerConnection!.createOffer()
-      await this.peerConnection!.setLocalDescription(offer)
+      if (this.peerConnection) {
+        const offer = await this.peerConnection.createOffer()
+        await this.peerConnection.setLocalDescription(offer)
 
-      // Send offer
-      await this.sendSignal({
-        type: "offer",
-        callId: this.currentCallId,
-        fromUserId: "",
-        toUserId,
-        callType,
-        data: offer,
-      })
+        // Send offer
+        await this.sendSignal({
+          type: "offer",
+          callId: this.currentCallId,
+          fromUserId: "",
+          toUserId,
+          callType,
+          data: offer,
+        })
+      }
 
       return this.currentCallId
     } catch (error) {
@@ -134,6 +150,10 @@ export class WebRTCService {
 
   async acceptCall(callData: CallData): Promise<void> {
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Media devices not supported")
+      }
+
       this.currentCallId = callData.callId
       this.isInitiator = false
 
@@ -146,11 +166,13 @@ export class WebRTCService {
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints)
 
       // Add tracks to peer connection
-      this.localStream.getTracks().forEach((track) => {
-        if (this.peerConnection && this.localStream) {
-          this.peerConnection.addTrack(track, this.localStream)
-        }
-      })
+      if (this.peerConnection && this.localStream) {
+        this.localStream.getTracks().forEach((track) => {
+          if (this.peerConnection && this.localStream) {
+            this.peerConnection.addTrack(track, this.localStream)
+          }
+        })
+      }
 
       // Send accept signal
       await this.sendSignal({
@@ -168,19 +190,21 @@ export class WebRTCService {
 
   async handleOffer(callData: CallData): Promise<void> {
     try {
-      await this.peerConnection!.setRemoteDescription(callData.data)
+      if (this.peerConnection) {
+        await this.peerConnection.setRemoteDescription(callData.data)
 
-      const answer = await this.peerConnection!.createAnswer()
-      await this.peerConnection!.setLocalDescription(answer)
+        const answer = await this.peerConnection.createAnswer()
+        await this.peerConnection.setLocalDescription(answer)
 
-      await this.sendSignal({
-        type: "answer",
-        callId: callData.callId,
-        fromUserId: "",
-        toUserId: callData.fromUserId,
-        callType: callData.callType,
-        data: answer,
-      })
+        await this.sendSignal({
+          type: "answer",
+          callId: callData.callId,
+          fromUserId: "",
+          toUserId: callData.fromUserId,
+          callType: callData.callType,
+          data: answer,
+        })
+      }
     } catch (error) {
       console.error("Error handling offer:", error)
     }
@@ -188,7 +212,9 @@ export class WebRTCService {
 
   async handleAnswer(callData: CallData): Promise<void> {
     try {
-      await this.peerConnection!.setRemoteDescription(callData.data)
+      if (this.peerConnection) {
+        await this.peerConnection.setRemoteDescription(callData.data)
+      }
     } catch (error) {
       console.error("Error handling answer:", error)
     }
@@ -196,72 +222,92 @@ export class WebRTCService {
 
   async handleIceCandidate(callData: CallData): Promise<void> {
     try {
-      await this.peerConnection!.addIceCandidate(callData.data)
+      if (this.peerConnection) {
+        await this.peerConnection.addIceCandidate(callData.data)
+      }
     } catch (error) {
       console.error("Error handling ICE candidate:", error)
     }
   }
 
   async rejectCall(callData: CallData): Promise<void> {
-    await this.sendSignal({
-      type: "call-reject",
-      callId: callData.callId,
-      fromUserId: "",
-      toUserId: callData.fromUserId,
-      callType: callData.callType,
-    })
+    try {
+      await this.sendSignal({
+        type: "call-reject",
+        callId: callData.callId,
+        fromUserId: "",
+        toUserId: callData.fromUserId,
+        callType: callData.callType,
+      })
+    } catch (error) {
+      console.error("Error rejecting call:", error)
+    }
   }
 
   async endCall(): Promise<void> {
-    if (this.currentCallId) {
-      await this.sendSignal({
-        type: "call-end",
-        callId: this.currentCallId,
-        fromUserId: "",
-        toUserId: "",
-        callType: "video",
-      })
-    }
+    try {
+      if (this.currentCallId) {
+        await this.sendSignal({
+          type: "call-end",
+          callId: this.currentCallId,
+          fromUserId: "",
+          toUserId: "",
+          callType: "video",
+        })
+      }
 
-    // Clean up
-    if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => track.stop())
-      this.localStream = null
-    }
+      // Clean up
+      if (this.localStream) {
+        this.localStream.getTracks().forEach((track) => track.stop())
+        this.localStream = null
+      }
 
-    if (this.peerConnection) {
-      this.peerConnection.close()
-      this.setupPeerConnection()
-    }
+      if (this.peerConnection) {
+        this.peerConnection.close()
+        this.setupPeerConnection()
+      }
 
-    this.currentCallId = null
-    this.isInitiator = false
+      this.currentCallId = null
+      this.isInitiator = false
 
-    if (this.onCallEnd) {
-      this.onCallEnd()
+      if (this.onCallEnd) {
+        this.onCallEnd()
+      }
+    } catch (error) {
+      console.error("Error ending call:", error)
     }
   }
 
   toggleVideo(): boolean {
-    if (this.localStream) {
-      const videoTrack = this.localStream.getVideoTracks()[0]
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled
-        return videoTrack.enabled
+    try {
+      if (this.localStream) {
+        const videoTrack = this.localStream.getVideoTracks()[0]
+        if (videoTrack) {
+          videoTrack.enabled = !videoTrack.enabled
+          return videoTrack.enabled
+        }
       }
+      return false
+    } catch (error) {
+      console.error("Error toggling video:", error)
+      return false
     }
-    return false
   }
 
   toggleAudio(): boolean {
-    if (this.localStream) {
-      const audioTrack = this.localStream.getAudioTracks()[0]
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled
-        return audioTrack.enabled
+    try {
+      if (this.localStream) {
+        const audioTrack = this.localStream.getAudioTracks()[0]
+        if (audioTrack) {
+          audioTrack.enabled = !audioTrack.enabled
+          return audioTrack.enabled
+        }
       }
+      return false
+    } catch (error) {
+      console.error("Error toggling audio:", error)
+      return false
     }
-    return false
   }
 
   getLocalStream(): MediaStream | null {
@@ -292,29 +338,37 @@ export class WebRTCService {
   }
 
   subscribeToSignals(userId: string, onSignal: (callData: CallData) => void): void {
-    this.supabase
-      .channel(`call-signals-${userId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "call_signals",
-          filter: `to_user_id=eq.${userId}`,
-        },
-        (payload: any) => {
-          const signal = payload.new
-          const callData: CallData = {
-            type: signal.signal_type,
-            callId: signal.call_id,
-            fromUserId: signal.from_user_id,
-            toUserId: signal.to_user_id,
-            callType: signal.call_type,
-            data: signal.signal_data,
-          }
-          onSignal(callData)
-        },
-      )
-      .subscribe()
+    try {
+      this.supabase
+        .channel(`call-signals-${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "call_signals",
+            filter: `to_user_id=eq.${userId}`,
+          },
+          (payload: any) => {
+            try {
+              const signal = payload.new
+              const callData: CallData = {
+                type: signal.signal_type,
+                callId: signal.call_id,
+                fromUserId: signal.from_user_id,
+                toUserId: signal.to_user_id,
+                callType: signal.call_type,
+                data: signal.signal_data,
+              }
+              onSignal(callData)
+            } catch (error) {
+              console.error("Error processing signal:", error)
+            }
+          },
+        )
+        .subscribe()
+    } catch (error) {
+      console.error("Error subscribing to signals:", error)
+    }
   }
 }

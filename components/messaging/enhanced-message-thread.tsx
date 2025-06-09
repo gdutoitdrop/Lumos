@@ -11,9 +11,6 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Send, Phone, Video, ArrowLeft, User, CheckCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { WebRTCService, type CallData } from "@/lib/webrtc/webrtc-service"
-import { IncomingCallModal } from "@/components/calling/incoming-call-modal"
-import { VideoCallInterface } from "@/components/calling/video-call-interface"
 
 interface EnhancedMessageThreadProps {
   conversationId: string
@@ -38,7 +35,6 @@ interface Message {
 export function EnhancedMessageThread({ conversationId, matchId, participantInfo }: EnhancedMessageThreadProps) {
   const { user } = useAuth()
   const supabase = createClient()
-  const webrtcRef = useRef<WebRTCService | null>(null)
 
   // Message state
   const [messages, setMessages] = useState<Message[]>([])
@@ -48,69 +44,6 @@ export function EnhancedMessageThread({ conversationId, matchId, participantInfo
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-
-  // Call state
-  const [incomingCall, setIncomingCall] = useState<CallData | null>(null)
-  const [activeCall, setActiveCall] = useState<CallData | null>(null)
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null)
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true)
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true)
-  const [callDuration, setCallDuration] = useState("00:00")
-  const [callStartTime, setCallStartTime] = useState<Date | null>(null)
-
-  // Initialize WebRTC
-  useEffect(() => {
-    if (!user) return
-
-    webrtcRef.current = new WebRTCService(supabase)
-
-    webrtcRef.current.onRemoteStream = (stream: MediaStream) => {
-      setRemoteStream(stream)
-    }
-
-    webrtcRef.current.onCallEnd = () => {
-      setActiveCall(null)
-      setIncomingCall(null)
-      setLocalStream(null)
-      setRemoteStream(null)
-      setCallStartTime(null)
-    }
-
-    webrtcRef.current.onIncomingCall = (callData: CallData) => {
-      setIncomingCall(callData)
-    }
-
-    // Subscribe to call signals
-    webrtcRef.current.subscribeToSignals(user.id, handleCallSignal)
-
-    return () => {
-      if (webrtcRef.current) {
-        webrtcRef.current.endCall()
-      }
-    }
-  }, [user])
-
-  // Call duration timer
-  useEffect(() => {
-    let interval: NodeJS.Timeout | null = null
-
-    if (callStartTime) {
-      interval = setInterval(() => {
-        const now = new Date()
-        const diff = now.getTime() - callStartTime.getTime()
-        const minutes = Math.floor(diff / 60000)
-        const seconds = Math.floor((diff % 60000) / 1000)
-        setCallDuration(`${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`)
-      }, 1000)
-    }
-
-    return () => {
-      if (interval) {
-        clearInterval(interval)
-      }
-    }
-  }, [callStartTime])
 
   // Fetch messages
   useEffect(() => {
@@ -172,107 +105,9 @@ export function EnhancedMessageThread({ conversationId, matchId, participantInfo
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  const handleCallSignal = async (callData: CallData) => {
-    if (!webrtcRef.current) return
-
-    switch (callData.type) {
-      case "call-start":
-        setIncomingCall(callData)
-        break
-      case "call-accept":
-        setActiveCall(callData)
-        setCallStartTime(new Date())
-        break
-      case "call-reject":
-        setIncomingCall(null)
-        break
-      case "call-end":
-        webrtcRef.current.endCall()
-        break
-      case "offer":
-        await webrtcRef.current.handleOffer(callData)
-        break
-      case "answer":
-        await webrtcRef.current.handleAnswer(callData)
-        break
-      case "ice-candidate":
-        await webrtcRef.current.handleIceCandidate(callData)
-        break
-    }
-  }
-
   const startCall = async (callType: "video" | "audio") => {
-    if (!webrtcRef.current || !user) return
-
-    try {
-      const callId = await webrtcRef.current.startCall(matchId, callType)
-      setActiveCall({
-        type: "call-start",
-        callId,
-        fromUserId: user.id,
-        toUserId: matchId,
-        callType,
-      })
-      setCallStartTime(new Date())
-
-      const stream = webrtcRef.current.getLocalStream()
-      setLocalStream(stream)
-    } catch (error) {
-      console.error("Error starting call:", error)
-      setError("Could not start call. Please check your camera and microphone permissions.")
-    }
-  }
-
-  const acceptCall = async () => {
-    if (!webrtcRef.current || !incomingCall) return
-
-    try {
-      await webrtcRef.current.acceptCall(incomingCall)
-      setActiveCall(incomingCall)
-      setIncomingCall(null)
-      setCallStartTime(new Date())
-
-      const stream = webrtcRef.current.getLocalStream()
-      setLocalStream(stream)
-    } catch (error) {
-      console.error("Error accepting call:", error)
-      setError("Could not accept call. Please check your camera and microphone permissions.")
-    }
-  }
-
-  const rejectCall = async () => {
-    if (!webrtcRef.current || !incomingCall) return
-
-    try {
-      await webrtcRef.current.rejectCall(incomingCall)
-      setIncomingCall(null)
-    } catch (error) {
-      console.error("Error rejecting call:", error)
-    }
-  }
-
-  const endCall = async () => {
-    if (!webrtcRef.current) return
-
-    try {
-      await webrtcRef.current.endCall()
-    } catch (error) {
-      console.error("Error ending call:", error)
-    }
-  }
-
-  const toggleVideo = () => {
-    if (webrtcRef.current) {
-      const enabled = webrtcRef.current.toggleVideo()
-      setIsVideoEnabled(enabled)
-    }
-  }
-
-  const toggleAudio = () => {
-    if (webrtcRef.current) {
-      const enabled = webrtcRef.current.toggleAudio()
-      setIsAudioEnabled(enabled)
-    }
+    // For now, just show an alert - we'll implement calling later
+    alert(`${callType} calling feature coming soon! This will start a ${callType} call with ${participantInfo.name}.`)
   }
 
   const handleSendMessage = async (e?: React.FormEvent) => {
@@ -353,24 +188,6 @@ export function EnhancedMessageThread({ conversationId, matchId, participantInfo
     return groups
   }
 
-  // Show video call interface if there's an active call
-  if (activeCall) {
-    return (
-      <VideoCallInterface
-        localStream={localStream}
-        remoteStream={remoteStream}
-        isVideoEnabled={isVideoEnabled}
-        isAudioEnabled={isAudioEnabled}
-        isVideoCall={activeCall.callType === "video"}
-        onToggleVideo={toggleVideo}
-        onToggleAudio={toggleAudio}
-        onEndCall={endCall}
-        participantInfo={participantInfo}
-        callDuration={callDuration}
-      />
-    )
-  }
-
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -383,191 +200,179 @@ export function EnhancedMessageThread({ conversationId, matchId, participantInfo
   }
 
   return (
-    <>
-      <div className="h-full flex flex-col bg-white dark:bg-slate-900">
-        {/* Header */}
-        <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-rose-50 to-amber-50 dark:from-slate-800 dark:to-slate-700">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => (window.location.href = "/messages")}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
+    <div className="h-full flex flex-col bg-white dark:bg-slate-900">
+      {/* Header */}
+      <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-rose-50 to-amber-50 dark:from-slate-800 dark:to-slate-700">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => (window.location.href = "/messages")}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
 
-            <Avatar className="h-10 w-10">
-              {participantInfo.avatar_url ? (
-                <AvatarImage src={participantInfo.avatar_url || "/placeholder.svg"} alt={participantInfo.name} />
-              ) : (
-                <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                  {participantInfo.name.charAt(0)}
-                </AvatarFallback>
-              )}
-            </Avatar>
+          <Avatar className="h-10 w-10">
+            {participantInfo.avatar_url ? (
+              <AvatarImage src={participantInfo.avatar_url || "/placeholder.svg"} alt={participantInfo.name} />
+            ) : (
+              <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
+                {participantInfo.name.charAt(0)}
+              </AvatarFallback>
+            )}
+          </Avatar>
 
-            <div className="flex-1">
-              <h2 className="text-lg font-medium text-slate-800 dark:text-white">{participantInfo.name}</h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400">@{participantInfo.username}</p>
-            </div>
-
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => startCall("audio")}
-                className="hover:bg-green-50 hover:border-green-300"
-              >
-                <Phone className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => startCall("video")}
-                className="hover:bg-blue-50 hover:border-blue-300"
-              >
-                <Video className="h-4 w-4" />
-              </Button>
-              <Button variant="outline" size="icon" onClick={() => (window.location.href = `/profile/${matchId}`)}>
-                <User className="h-4 w-4" />
-              </Button>
-            </div>
+          <div className="flex-1">
+            <h2 className="text-lg font-medium text-slate-800 dark:text-white">{participantInfo.name}</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400">@{participantInfo.username}</p>
           </div>
-        </div>
 
-        {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          {success && (
-            <Alert className="border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900 dark:text-green-200">
-              <CheckCircle className="h-4 w-4" />
-              <AlertDescription>{success}</AlertDescription>
-            </Alert>
-          )}
-
-          {messages.length === 0 ? (
-            <div className="h-full flex items-center justify-center">
-              <div className="text-center">
-                <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                  <Send className="h-8 w-8 text-white" />
-                </div>
-                <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">Start the conversation!</h3>
-                <p className="text-slate-500 dark:text-slate-400">
-                  Send your first message or start a call to begin chatting.
-                </p>
-              </div>
-            </div>
-          ) : (
-            groupMessagesByDate().map((group, groupIndex) => (
-              <div key={groupIndex} className="space-y-4">
-                {/* Date separator */}
-                <div className="flex justify-center">
-                  <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
-                    {group.date}
-                  </span>
-                </div>
-
-                {/* Messages for this date */}
-                {group.messages.map((message) => {
-                  const isCurrentUser = message.sender_id === user?.id
-
-                  return (
-                    <div key={message.id} className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
-                      <div
-                        className={`flex ${isCurrentUser ? "flex-row-reverse" : "flex-row"} items-end gap-3 max-w-[80%]`}
-                      >
-                        <Avatar className="h-8 w-8 flex-shrink-0">
-                          {isCurrentUser ? (
-                            <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                              You
-                            </AvatarFallback>
-                          ) : participantInfo.avatar_url ? (
-                            <AvatarImage
-                              src={participantInfo.avatar_url || "/placeholder.svg"}
-                              alt={participantInfo.name}
-                            />
-                          ) : (
-                            <AvatarFallback className="bg-slate-200 dark:bg-slate-700">
-                              {participantInfo.name.charAt(0)}
-                            </AvatarFallback>
-                          )}
-                        </Avatar>
-
-                        <Card
-                          className={`${
-                            isCurrentUser
-                              ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white border-none"
-                              : "bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600"
-                          }`}
-                        >
-                          <CardContent className="p-3">
-                            <p className="text-sm leading-relaxed">{message.message_text}</p>
-                            <p
-                              className={`text-xs mt-2 ${
-                                isCurrentUser ? "text-rose-100" : "text-slate-500 dark:text-slate-400"
-                              }`}
-                            >
-                              {formatMessageTime(message.sent_at)}
-                            </p>
-                          </CardContent>
-                        </Card>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Message Input */}
-        <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-          <form onSubmit={handleSendMessage} className="flex items-end gap-3">
-            <div className="flex-1">
-              <Textarea
-                placeholder={`Message ${participantInfo.name}...`}
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                className="min-h-[60px] max-h-[120px] resize-none border-slate-300 dark:border-slate-600 focus:border-rose-500 dark:focus:border-rose-400"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSendMessage()
-                  }
-                }}
-                disabled={sending}
-              />
-            </div>
+          <div className="flex gap-2">
             <Button
-              type="submit"
+              variant="outline"
               size="icon"
-              className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white h-12 w-12 rounded-xl shadow-md"
-              disabled={sending || !newMessage.trim()}
+              onClick={() => startCall("audio")}
+              className="hover:bg-green-50 hover:border-green-300"
             >
-              {sending ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              ) : (
-                <Send className="h-5 w-5" />
-              )}
+              <Phone className="h-4 w-4" />
             </Button>
-          </form>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-            {sending ? "Sending message..." : "Press Enter to send, Shift+Enter for new line"}
-          </p>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => startCall("video")}
+              className="hover:bg-blue-50 hover:border-blue-300"
+            >
+              <Video className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="icon" onClick={() => (window.location.href = `/profile/${matchId}`)}>
+              <User className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </div>
 
-      {/* Incoming Call Modal */}
-      {incomingCall && (
-        <IncomingCallModal
-          callData={incomingCall}
-          callerInfo={participantInfo}
-          onAccept={acceptCall}
-          onReject={rejectCall}
-        />
-      )}
-    </>
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {success && (
+          <Alert className="border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900 dark:text-green-200">
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>{success}</AlertDescription>
+          </Alert>
+        )}
+
+        {messages.length === 0 ? (
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center">
+              <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                <Send className="h-8 w-8 text-white" />
+              </div>
+              <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">Start the conversation!</h3>
+              <p className="text-slate-500 dark:text-slate-400">
+                Send your first message or start a call to begin chatting.
+              </p>
+            </div>
+          </div>
+        ) : (
+          groupMessagesByDate().map((group, groupIndex) => (
+            <div key={groupIndex} className="space-y-4">
+              {/* Date separator */}
+              <div className="flex justify-center">
+                <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
+                  {group.date}
+                </span>
+              </div>
+
+              {/* Messages for this date */}
+              {group.messages.map((message) => {
+                const isCurrentUser = message.sender_id === user?.id
+
+                return (
+                  <div key={message.id} className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`flex ${isCurrentUser ? "flex-row-reverse" : "flex-row"} items-end gap-3 max-w-[80%]`}
+                    >
+                      <Avatar className="h-8 w-8 flex-shrink-0">
+                        {isCurrentUser ? (
+                          <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
+                            You
+                          </AvatarFallback>
+                        ) : participantInfo.avatar_url ? (
+                          <AvatarImage
+                            src={participantInfo.avatar_url || "/placeholder.svg"}
+                            alt={participantInfo.name}
+                          />
+                        ) : (
+                          <AvatarFallback className="bg-slate-200 dark:bg-slate-700">
+                            {participantInfo.name.charAt(0)}
+                          </AvatarFallback>
+                        )}
+                      </Avatar>
+
+                      <Card
+                        className={`${
+                          isCurrentUser
+                            ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white border-none"
+                            : "bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600"
+                        }`}
+                      >
+                        <CardContent className="p-3">
+                          <p className="text-sm leading-relaxed">{message.message_text}</p>
+                          <p
+                            className={`text-xs mt-2 ${
+                              isCurrentUser ? "text-rose-100" : "text-slate-500 dark:text-slate-400"
+                            }`}
+                          >
+                            {formatMessageTime(message.sent_at)}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ))
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Message Input */}
+      <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        <form onSubmit={handleSendMessage} className="flex items-end gap-3">
+          <div className="flex-1">
+            <Textarea
+              placeholder={`Message ${participantInfo.name}...`}
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              className="min-h-[60px] max-h-[120px] resize-none border-slate-300 dark:border-slate-600 focus:border-rose-500 dark:focus:border-rose-400"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSendMessage()
+                }
+              }}
+              disabled={sending}
+            />
+          </div>
+          <Button
+            type="submit"
+            size="icon"
+            className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white h-12 w-12 rounded-xl shadow-md"
+            disabled={sending || !newMessage.trim()}
+          >
+            {sending ? (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+            ) : (
+              <Send className="h-5 w-5" />
+            )}
+          </Button>
+        </form>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+          {sending ? "Sending message..." : "Press Enter to send, Shift+Enter for new line"}
+        </p>
+      </div>
+    </div>
   )
 }
