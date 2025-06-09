@@ -1,315 +1,223 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
+import Link from "next/link"
+import { usePathname, useRouter } from "next/navigation"
 import { useAuth } from "@/components/auth/auth-provider"
-import { supabase } from "@/lib/supabase/client"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { ModeToggle } from "@/components/mode-toggle"
-import Link from "next/link"
-import { useRouter, usePathname } from "next/navigation"
 import {
   Heart,
   MessageCircle,
   Users,
   BookOpen,
+  User,
   Settings,
   LogOut,
-  Home,
-  Shield,
   Menu,
   X,
+  Home,
   Crown,
-  Zap,
+  AlertCircle,
 } from "lucide-react"
-
-interface Profile {
-  id: string
-  username: string | null
-  full_name: string | null
-  avatar_url: string | null
-  bio: string | null
-  // Make these fields optional with undefined to handle missing columns
-  connection_mode?: string | null
-  subscription_tier?: string | null
-}
 
 interface DashboardLayoutProps {
   children: React.ReactNode
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { user, signOut } = useAuth()
-  const router = useRouter()
+  const { user, signOut, isLoading, error } = useAuth()
   const pathname = usePathname()
-  const [profile, setProfile] = useState<Profile | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
-
-  // Update the fetchProfile function to handle missing columns
-  const fetchProfile = async () => {
-    if (!user || profile) return
-
-    try {
-      setIsLoading(true)
-      // First try to fetch only the columns we know exist
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id, username, full_name, avatar_url, bio")
-        .eq("id", user.id)
-        .single()
-
-      if (error) {
-        if (error.code === "PGRST116") {
-          // Profile doesn't exist yet, which is fine for new users
-          console.log("Profile not found for user:", user.id)
-        } else {
-          console.error("Error fetching profile:", error)
-        }
-      } else {
-        // Set the basic profile data
-        setProfile(data)
-
-        // Try to fetch additional fields separately to handle missing columns
-        try {
-          const { data: extendedData } = await supabase
-            .from("profiles")
-            .select("connection_mode, subscription_tier")
-            .eq("id", user.id)
-            .single()
-
-          if (extendedData) {
-            // Update profile with additional fields if they exist
-            setProfile((prev) => ({
-              ...prev!,
-              connection_mode: extendedData.connection_mode,
-              subscription_tier: extendedData.subscription_tier,
-            }))
-          }
-        } catch (extendedError) {
-          console.log("Some extended profile fields might not exist in the database:", extendedError)
-          // Continue without the extended fields
-        }
-      }
-    } catch (error) {
-      console.error("Error in fetchProfile:", error)
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const router = useRouter()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
 
   useEffect(() => {
-    fetchProfile()
-  }, [user, profile])
+    if (!isLoading && !user) {
+      router.push("/login")
+    }
+  }, [user, isLoading, router])
 
   const handleSignOut = async () => {
     try {
+      setAuthError(null)
       await signOut()
-      router.push("/")
-    } catch (error) {
-      console.error("Error signing out:", error)
+    } catch (error: any) {
+      setAuthError(error.message || "Failed to sign out")
     }
   }
 
   const navigation = [
     { name: "Dashboard", href: "/dashboard", icon: Home },
-    { name: "Matching", href: "/matching", icon: Heart },
+    { name: "Find Matches", href: "/matching", icon: Heart },
     { name: "Messages", href: "/messages", icon: MessageCircle },
     { name: "Community", href: "/community", icon: Users },
     { name: "Resources", href: "/resources", icon: BookOpen },
-    { name: "Settings", href: "/settings", icon: Settings },
+    { name: "Premium", href: "/premium", icon: Crown },
   ]
 
-  const isAdmin = user?.email === "admin@lumos.com"
-  const isPremium = profile?.subscription_tier === "premium" || profile?.subscription_tier === "premium_plus"
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
+          <p className="text-slate-500 dark:text-slate-400">Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
-  // Get display name from profile data
-  const displayName = profile?.full_name || profile?.username || user?.email?.split("@")[0] || "User"
-  const avatarFallback = profile?.full_name?.[0] || profile?.username?.[0] || user?.email?.[0]?.toUpperCase() || "U"
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-rose-500 mx-auto mb-4" />
+          <h2 className="text-xl font-semibold mb-2">Authentication Required</h2>
+          <p className="text-slate-500 dark:text-slate-400 mb-4">Please log in to access this page.</p>
+          <Button onClick={() => router.push("/login")}>Go to Login</Button>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Mobile menu button */}
-      <div className="lg:hidden fixed top-4 left-4 z-50">
-        <Button variant="outline" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
-          {isMobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-        </Button>
-      </div>
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+      {/* Mobile sidebar backdrop */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 bg-black bg-opacity-50 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
 
       {/* Sidebar */}
       <div
-        className={`fixed inset-y-0 left-0 z-40 w-64 bg-card border-r transform transition-transform duration-300 ease-in-out ${
-          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-        } lg:translate-x-0`}
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-in-out lg:translate-x-0 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
       >
         <div className="flex flex-col h-full">
-          <div className="p-6">
+          {/* Logo */}
+          <div className="flex items-center justify-between p-6 border-b border-slate-200 dark:border-slate-700">
             <Link href="/dashboard" className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <span className="text-primary-foreground font-bold text-sm">L</span>
+              <div className="w-8 h-8 bg-gradient-to-r from-rose-500 to-amber-500 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-lg">L</span>
               </div>
-              <span className="text-xl font-bold">Lumos</span>
-              {isPremium && <Crown className="h-4 w-4 text-amber-500" />}
+              <span className="text-xl font-bold text-slate-900 dark:text-white">Lumos</span>
             </Link>
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(false)}>
+              <X className="h-5 w-5" />
+            </Button>
           </div>
 
-          <nav className="flex-1 px-4 space-y-2">
+          {/* Navigation */}
+          <nav className="flex-1 p-4 space-y-2">
             {navigation.map((item) => {
-              const isActive = pathname === item.href
+              const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
               return (
                 <Link
                   key={item.name}
                   href={item.href}
                   className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                      ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white"
+                      : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
                   }`}
-                  onClick={() => setIsMobileMenuOpen(false)}
+                  onClick={() => setSidebarOpen(false)}
                 >
                   <item.icon className="h-5 w-5" />
                   <span>{item.name}</span>
+                  {item.name === "Premium" && (
+                    <Badge variant="secondary" className="ml-auto text-xs">
+                      New
+                    </Badge>
+                  )}
                 </Link>
               )
             })}
+          </nav>
 
-            {/* Premium/Mode Selection Links */}
-            <div className="pt-4 border-t">
-              <Link
-                href="/mode-selection"
-                className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  pathname === "/mode-selection"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                }`}
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                <Zap className="h-5 w-5" />
-                <span>Connection Mode</span>
-                {profile?.connection_mode && (
-                  <Badge variant="secondary" className="text-xs">
-                    {profile.connection_mode}
-                  </Badge>
-                )}
-              </Link>
+          {/* User section */}
+          <div className="p-4 border-t border-slate-200 dark:border-slate-700">
+            {error && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
 
-              <Link
-                href="/premium"
-                className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  pathname === "/premium"
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                }`}
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                <Crown className="h-5 w-5" />
-                <span>Premium</span>
-                {isPremium && (
-                  <Badge variant="secondary" className="bg-amber-100 text-amber-700 text-xs">
-                    Active
-                  </Badge>
-                )}
-              </Link>
+            {authError && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{authError}</AlertDescription>
+              </Alert>
+            )}
+
+            <div className="flex items-center space-x-3 mb-4">
+              <Avatar className="h-10 w-10">
+                <AvatarImage src={user.user_metadata?.avatar_url || "/placeholder.svg"} alt={user.email || ""} />
+                <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
+                  {user.email?.charAt(0).toUpperCase() || "U"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                  {user.user_metadata?.full_name || user.email}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{user.email}</p>
+              </div>
             </div>
 
-            {isAdmin && (
+            <div className="space-y-2">
               <Link
-                href="/admin/community"
-                className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  pathname.startsWith("/admin")
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
-                }`}
-                onClick={() => setIsMobileMenuOpen(false)}
+                href="/profile"
+                className="flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                onClick={() => setSidebarOpen(false)}
               >
-                <Shield className="h-5 w-5" />
-                <span>Admin</span>
+                <User className="h-4 w-4" />
+                <span>Profile</span>
               </Link>
-            )}
-          </nav>
+              <Link
+                href="/settings"
+                className="flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                onClick={() => setSidebarOpen(false)}
+              >
+                <Settings className="h-4 w-4" />
+                <span>Settings</span>
+              </Link>
+              <Button
+                variant="ghost"
+                className="w-full justify-start space-x-3 px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={handleSignOut}
+              >
+                <LogOut className="h-4 w-4" />
+                <span>Sign Out</span>
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Main content */}
       <div className="lg:pl-64">
-        {/* Header */}
-        <header className="bg-card border-b px-6 py-4">
+        {/* Top bar */}
+        <div className="sticky top-0 z-30 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 px-4 py-3 lg:px-6">
           <div className="flex items-center justify-between">
-            <div className="lg:hidden" /> {/* Spacer for mobile menu button */}
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)}>
+              <Menu className="h-5 w-5" />
+            </Button>
             <div className="flex items-center space-x-4 ml-auto">
               <ModeToggle />
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="relative h-8 w-8 rounded-full">
-                    <Avatar className="h-8 w-8">
-                      <AvatarImage src={profile?.avatar_url || undefined} alt={displayName} />
-                      <AvatarFallback>{avatarFallback}</AvatarFallback>
-                    </Avatar>
-                    {isPremium && <Crown className="absolute -top-1 -right-1 h-4 w-4 text-amber-500" />}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-56" align="end" forceMount>
-                  <DropdownMenuLabel className="font-normal">
-                    <div className="flex flex-col space-y-1">
-                      <p className="text-sm font-medium leading-none flex items-center gap-2">
-                        {displayName}
-                        {isPremium && <Crown className="h-3 w-3 text-amber-500" />}
-                      </p>
-                      <p className="text-xs leading-none text-muted-foreground">{user?.email}</p>
-                      {profile?.connection_mode && (
-                        <Badge variant="outline" className="text-xs w-fit">
-                          {profile.connection_mode} mode
-                        </Badge>
-                      )}
-                    </div>
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild>
-                    <Link href="/profile">Profile</Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/mode-selection">Connection Mode</Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/premium">Premium Features</Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem asChild>
-                    <Link href="/settings">Settings</Link>
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={handleSignOut}>
-                    <LogOut className="mr-2 h-4 w-4" />
-                    <span>Log out</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
             </div>
           </div>
-        </header>
+        </div>
 
         {/* Page content */}
-        <main className="p-6">{children}</main>
+        <main className="flex-1">
+          <div className="h-full">{children}</div>
+        </main>
       </div>
-
-      {/* Mobile menu overlay */}
-      {isMobileMenuOpen && (
-        <div
-          className="fixed inset-0 z-30 bg-black bg-opacity-50 lg:hidden"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
     </div>
   )
 }
