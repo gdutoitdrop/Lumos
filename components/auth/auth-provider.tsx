@@ -12,6 +12,7 @@ type AuthContextType = {
   isLoading: boolean
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<void>
+  error: string | null
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -20,12 +21,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
     const getSession = async () => {
       try {
+        setError(null)
         const {
           data: { session },
           error,
@@ -33,12 +36,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (error) {
           console.error("Error getting session:", error)
+          setError(error.message)
         }
 
         setSession(session)
         setUser(session?.user ?? null)
       } catch (error) {
         console.error("Error in getSession:", error)
+        setError("Failed to get session")
       } finally {
         setIsLoading(false)
       }
@@ -48,10 +53,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state changed:", event, session?.user?.id)
       setSession(session)
       setUser(session?.user ?? null)
       setIsLoading(false)
+
+      if (event === "SIGNED_OUT") {
+        router.push("/")
+      }
+
       router.refresh()
     })
 
@@ -62,14 +73,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signOut = async () => {
     setIsLoading(true)
+    setError(null)
     try {
       const { error } = await supabase.auth.signOut()
       if (error) {
         throw error
       }
       router.push("/")
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error signing out:", error)
+      setError(error.message)
       throw error
     } finally {
       setIsLoading(false)
@@ -78,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const resetPassword = async (email: string) => {
     setIsLoading(true)
+    setError(null)
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`,
@@ -85,8 +99,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) {
         throw error
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error resetting password:", error)
+      setError(error.message)
       throw error
     } finally {
       setIsLoading(false)
@@ -94,7 +109,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, session, isLoading, signOut, resetPassword }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, session, isLoading, signOut, resetPassword, error }}>
+      {children}
+    </AuthContext.Provider>
   )
 }
 
