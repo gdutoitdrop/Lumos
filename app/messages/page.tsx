@@ -2,246 +2,144 @@
 
 import { useEffect, useState } from "react"
 import { useAuth } from "@/components/auth/auth-provider"
-import { messagingService, type Conversation } from "@/lib/messaging-service"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { messagingService } from "@/lib/messaging-service"
+import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { Search, MessageCircle, Plus, Users, Heart } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { MessageCircle, Plus } from "lucide-react"
+import Link from "next/link"
+
+interface Conversation {
+  id: string
+  other_participant: {
+    id: string
+    full_name: string | null
+    avatar_url: string | null
+  }
+  last_message?: {
+    content: string
+    created_at: string
+    sender_id: string
+  }
+  updated_at: string
+}
 
 export default function MessagesPage() {
   const { user } = useAuth()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    const fetchConversations = async () => {
-      if (!user) {
-        setLoading(false)
-        return
-      }
-
-      setLoading(true)
-      setError(null)
-
-      try {
-        const userConversations = await messagingService.getUserConversations(user.id)
-        setConversations(userConversations)
-      } catch (error) {
-        console.error("Error fetching conversations:", error)
-        setError("Failed to load conversations")
-        setConversations([])
-      } finally {
-        setLoading(false)
-      }
+    if (user) {
+      loadConversations()
     }
-
-    fetchConversations()
   }, [user])
 
-  const filteredConversations = conversations.filter((conv) => {
-    if (!conv.other_user) return false
+  const loadConversations = async () => {
+    if (!user) return
 
-    const searchLower = searchQuery.toLowerCase()
-    return (
-      conv.other_user.full_name?.toLowerCase().includes(searchLower) ||
-      conv.other_user.username?.toLowerCase().includes(searchLower)
-    )
-  })
-
-  const formatMessageTime = (timestamp: string) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60)
-
-    if (diffInHours < 1) {
-      return "Just now"
-    } else if (diffInHours < 24) {
-      return `${Math.floor(diffInHours)}h ago`
-    } else {
-      return date.toLocaleDateString([], { month: "short", day: "numeric" })
-    }
-  }
-
-  const handleConversationClick = (conversation: Conversation) => {
-    if (conversation.other_user) {
-      window.location.href = `/messages/match-${conversation.other_user.id}`
+    try {
+      const data = await messagingService.getConversations(user.id)
+      setConversations(data)
+    } catch (error) {
+      console.error("Error loading conversations:", error)
+    } finally {
+      setLoading(false)
     }
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-amber-50 flex items-center justify-center p-4">
-        <Card className="w-full max-w-md">
-          <CardContent className="p-6 text-center">
-            <div className="bg-rose-100 rounded-full p-3 w-12 h-12 mx-auto mb-4 flex items-center justify-center">
-              <MessageCircle className="h-6 w-6 text-rose-600" />
-            </div>
-            <h2 className="text-xl font-semibold mb-4">Authentication Required</h2>
-            <p className="text-slate-600 mb-4">Please log in to access your messages.</p>
-            <Button
-              onClick={() => (window.location.href = "/login")}
-              className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
-            >
-              Go to Login
-            </Button>
+      <div className="container mx-auto px-4 py-8">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-center text-gray-500">Please sign in to view your messages.</p>
           </CardContent>
         </Card>
       </div>
     )
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-amber-50">
-      <div className="container mx-auto px-4 py-6">
-        <div className="max-w-4xl mx-auto">
-          {/* Header */}
-          <Card className="mb-6">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2">
-                  <MessageCircle className="h-5 w-5 text-rose-500" />
-                  Messages
-                  {conversations.length > 0 && <Badge variant="secondary">{conversations.length}</Badge>}
-                </CardTitle>
-                <Button
-                  onClick={() => (window.location.href = "/matching")}
-                  className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Find Matches
-                </Button>
-              </div>
-            </CardHeader>
-          </Card>
-
-          {/* Search */}
-          <Card className="mb-6">
-            <CardContent className="p-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
-                <Input
-                  placeholder="Search conversations..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Error Message */}
-          {error && (
-            <Card className="mb-6 border-red-200 bg-red-50">
+  if (loading) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="animate-pulse space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <Card key={i}>
               <CardContent className="p-4">
-                <p className="text-red-600 text-sm">{error}</p>
+                <div className="flex items-center space-x-4">
+                  <div className="w-12 h-12 bg-gray-200 rounded-full"></div>
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+                    <div className="h-3 bg-gray-200 rounded w-3/4"></div>
+                  </div>
+                </div>
               </CardContent>
             </Card>
-          )}
-
-          {/* Conversations */}
-          <Card>
-            <CardContent className="p-0">
-              {loading ? (
-                <div className="p-8 text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
-                  <p className="text-slate-600">Loading conversations...</p>
-                </div>
-              ) : filteredConversations.length === 0 ? (
-                <div className="p-8 text-center">
-                  <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-3 w-12 h-12 mx-auto mb-4 flex items-center justify-center">
-                    <MessageCircle className="h-6 w-6 text-white" />
-                  </div>
-                  <h3 className="font-medium text-slate-600 mb-2">
-                    {searchQuery ? "No conversations found" : "No messages yet"}
-                  </h3>
-                  <p className="text-sm text-slate-500 mb-4">
-                    {searchQuery
-                      ? "Try adjusting your search terms"
-                      : "Start connecting with people to begin conversations"}
-                  </p>
-                  <div className="flex gap-3 justify-center">
-                    <Button
-                      variant="outline"
-                      onClick={() => (window.location.href = "/matching")}
-                      className="flex items-center gap-2"
-                    >
-                      <Heart className="h-4 w-4" />
-                      Find Matches
-                    </Button>
-                    <Button
-                      onClick={() => (window.location.href = "/community")}
-                      className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
-                    >
-                      <Users className="h-4 w-4 mr-2" />
-                      Join Community
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="divide-y divide-slate-200">
-                  {filteredConversations.map((conversation) => (
-                    <div
-                      key={conversation.id}
-                      className="p-4 hover:bg-slate-50 cursor-pointer transition-colors"
-                      onClick={() => handleConversationClick(conversation)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Avatar className="h-12 w-12">
-                          {conversation.other_user.avatar_url ? (
-                            <AvatarImage
-                              src={conversation.other_user.avatar_url || "/placeholder.svg"}
-                              alt={conversation.other_user.full_name || conversation.other_user.username}
-                            />
-                          ) : (
-                            <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                              {(conversation.other_user.full_name || conversation.other_user.username || "U")
-                                .charAt(0)
-                                .toUpperCase()}
-                            </AvatarFallback>
-                          )}
-                        </Avatar>
-
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between mb-1">
-                            <h3 className="font-medium text-slate-800 truncate">
-                              {conversation.other_user.full_name || conversation.other_user.username}
-                            </h3>
-                            <div className="flex items-center gap-2">
-                              {conversation.unread_count > 0 && (
-                                <Badge className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                                  {conversation.unread_count}
-                                </Badge>
-                              )}
-                              <span className="text-xs text-slate-500">
-                                {conversation.last_message
-                                  ? formatMessageTime(conversation.last_message.created_at)
-                                  : formatMessageTime(conversation.created_at)}
-                              </span>
-                            </div>
-                          </div>
-
-                          <p className="text-sm text-slate-500 mb-1">@{conversation.other_user.username}</p>
-
-                          {conversation.last_message && (
-                            <p className="text-sm text-slate-600 truncate">
-                              {conversation.last_message.sender_id === user.id ? "You: " : ""}
-                              {conversation.last_message.content}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          ))}
         </div>
       </div>
+    )
+  }
+
+  return (
+    <div className="container mx-auto px-4 py-8">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Messages</h1>
+        <Link href="/messages/new">
+          <Button>
+            <Plus className="w-4 h-4 mr-2" />
+            New Message
+          </Button>
+        </Link>
+      </div>
+
+      {conversations.length === 0 ? (
+        <Card>
+          <CardContent className="pt-6 text-center">
+            <MessageCircle className="w-12 h-12 mx-auto text-gray-400 mb-4" />
+            <h3 className="text-lg font-semibold mb-2">No conversations yet</h3>
+            <p className="text-gray-500 mb-4">Start connecting with people to begin messaging!</p>
+            <Link href="/matching">
+              <Button>Find Matches</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {conversations.map((conversation) => (
+            <Link key={conversation.id} href={`/messages/${conversation.id}`}>
+              <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-4">
+                    <Avatar className="h-12 w-12">
+                      <AvatarImage src={conversation.other_participant.avatar_url || ""} />
+                      <AvatarFallback>{conversation.other_participant.full_name?.charAt(0) || "?"}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex justify-between items-start">
+                        <h3 className="font-semibold text-gray-900 truncate">
+                          {conversation.other_participant.full_name || "Unknown User"}
+                        </h3>
+                        <span className="text-xs text-gray-500">
+                          {conversation.last_message &&
+                            new Date(conversation.last_message.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      {conversation.last_message && (
+                        <p className="text-sm text-gray-600 truncate mt-1">
+                          {conversation.last_message.sender_id === user.id ? "You: " : ""}
+                          {conversation.last_message.content}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

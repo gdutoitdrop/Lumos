@@ -6,43 +6,43 @@ export interface Database {
       profiles: {
         Row: {
           id: string
-          username: string | null
+          email: string
           full_name: string | null
           avatar_url: string | null
           bio: string | null
-          mental_health_badges: string[] | null
-          current_mood: string | null
-          looking_for: string | null
-          mental_health_journey: string | null
-          gender: string | null
+          age: number | null
+          location: string | null
+          interests: string[] | null
+          mode: "dating" | "friendship" | null
+          is_premium: boolean
           created_at: string
           updated_at: string
         }
         Insert: {
           id: string
-          username?: string | null
+          email: string
           full_name?: string | null
           avatar_url?: string | null
           bio?: string | null
-          mental_health_badges?: string[] | null
-          current_mood?: string | null
-          looking_for?: string | null
-          mental_health_journey?: string | null
-          gender?: string | null
+          age?: number | null
+          location?: string | null
+          interests?: string[] | null
+          mode?: "dating" | "friendship" | null
+          is_premium?: boolean
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
-          username?: string | null
+          email?: string
           full_name?: string | null
           avatar_url?: string | null
           bio?: string | null
-          mental_health_badges?: string[] | null
-          current_mood?: string | null
-          looking_for?: string | null
-          mental_health_journey?: string | null
-          gender?: string | null
+          age?: number | null
+          location?: string | null
+          interests?: string[] | null
+          mode?: "dating" | "friendship" | null
+          is_premium?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -50,122 +50,122 @@ export interface Database {
       conversations: {
         Row: {
           id: string
+          participant_1: string
+          participant_2: string
           created_at: string
+          updated_at: string
         }
         Insert: {
           id?: string
+          participant_1: string
+          participant_2: string
           created_at?: string
+          updated_at?: string
         }
         Update: {
           id?: string
+          participant_1?: string
+          participant_2?: string
           created_at?: string
-        }
-      }
-      conversation_participants: {
-        Row: {
-          conversation_id: string
-          profile_id: string
-        }
-        Insert: {
-          conversation_id: string
-          profile_id: string
-        }
-        Update: {
-          conversation_id?: string
-          profile_id?: string
+          updated_at?: string
         }
       }
       messages: {
         Row: {
           id: string
           conversation_id: string
-          profile_id: string
+          sender_id: string
           content: string
           created_at: string
-          is_read: boolean
         }
         Insert: {
           id?: string
           conversation_id: string
-          profile_id: string
+          sender_id: string
           content: string
           created_at?: string
-          is_read?: boolean
         }
         Update: {
           id?: string
           conversation_id?: string
-          profile_id?: string
+          sender_id?: string
           content?: string
           created_at?: string
-          is_read?: boolean
-        }
-      }
-      user_preferences: {
-        Row: {
-          profile_id: string
-          age_min: number | null
-          age_max: number | null
-          connection_type: string | null
-          preferred_badges: string[] | null
-          preferred_genders: string[] | null
-          location: string | null
-          max_distance: number | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          profile_id: string
-          age_min?: number | null
-          age_max?: number | null
-          connection_type?: string | null
-          preferred_badges?: string[] | null
-          preferred_genders?: string[] | null
-          location?: string | null
-          max_distance?: number | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          profile_id?: string
-          age_min?: number | null
-          age_max?: number | null
-          connection_type?: string | null
-          preferred_badges?: string[] | null
-          preferred_genders?: string[] | null
-          location?: string | null
-          max_distance?: number | null
-          created_at?: string
-          updated_at?: string
         }
       }
       matches: {
         Row: {
           id: string
-          profile_id_1: string
-          profile_id_2: string
-          match_score: number
-          status: string
+          user_1: string
+          user_2: string
+          status: "pending" | "matched" | "rejected"
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_1: string
+          user_2: string
+          status?: "pending" | "matched" | "rejected"
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_1?: string
+          user_2?: string
+          status?: "pending" | "matched" | "rejected"
+          created_at?: string
+        }
+      }
+      forum_threads: {
+        Row: {
+          id: string
+          title: string
+          content: string
+          author_id: string
+          category: string
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
-          profile_id_1: string
-          profile_id_2: string
-          match_score: number
-          status?: string
+          title: string
+          content: string
+          author_id: string
+          category: string
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
-          profile_id_1?: string
-          profile_id_2?: string
-          match_score?: number
-          status?: string
+          title?: string
+          content?: string
+          author_id?: string
+          category?: string
           created_at?: string
           updated_at?: string
+        }
+      }
+      forum_replies: {
+        Row: {
+          id: string
+          thread_id: string
+          author_id: string
+          content: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          thread_id: string
+          author_id: string
+          content: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          thread_id?: string
+          author_id?: string
+          content?: string
+          created_at?: string
         }
       }
     }

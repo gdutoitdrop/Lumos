@@ -1,285 +1,120 @@
 import { createClient } from "@/lib/supabase/client"
+import type { Database } from "@/lib/database.types"
 
-export interface Match {
-  id: string
-  profile_id_1: string
-  profile_id_2: string
-  match_score: number
-  status: "pending" | "accepted" | "rejected" | "unmatched"
-  created_at: string
-  updated_at: string
-  other_user: {
-    id: string
-    username: string
-    full_name: string
-    avatar_url?: string
-    bio?: string
-    mental_health_badges?: string[]
-    age?: number
-    location?: string
-  }
-}
+type Profile = Database["public"]["Tables"]["profiles"]["Row"]
+type Match = Database["public"]["Tables"]["matches"]["Row"]
 
-export interface PotentialMatch {
-  id: string
-  username: string
-  full_name: string
-  avatar_url?: string
-  bio?: string
-  mental_health_badges?: string[]
-  age?: number
-  location?: string
-  match_score: number
-}
-
-class MatchService {
+export class MatchService {
   private supabase = createClient()
 
-  async getUserMatches(userId: string): Promise<Match[]> {
+  async getPotentialMatches(userId: string, limit = 10) {
     try {
-      const { data: matches, error } = await this.supabase
-        .from("matches")
-        .select("*")
-        .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
-        .eq("status", "accepted")
-        .order("updated_at", { ascending: false })
+      // Get users that haven't been matched with yet
+      const { data, error } = await this.supabase.from("profiles").select("*").neq("id", userId).limit(limit)
 
-      if (error) {
-        console.error("Error fetching matches:", error)
-        return this.getDemoMatches()
-      }
-
-      if (!matches || matches.length === 0) {
-        return this.getDemoMatches()
-      }
-
-      // Get other user profiles for each match
-      const matchesWithProfiles = await Promise.all(
-        matches.map(async (match) => {
-          const otherUserId = match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1
-
-          const { data: otherUser, error: profileError } = await this.supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", otherUserId)
-            .single()
-
-          if (profileError || !otherUser) {
-            return null
-          }
-
-          return {
-            ...match,
-            other_user: otherUser,
-          }
-        }),
-      )
-
-      return matchesWithProfiles.filter((match) => match !== null) as Match[]
+      if (error) throw error
+      return data || []
     } catch (error) {
-      console.error("Error in getUserMatches:", error)
-      return this.getDemoMatches()
-    }
-  }
-
-  private getDemoMatches(): Match[] {
-    return [
-      {
-        id: "demo-match-1",
-        profile_id_1: "current-user",
-        profile_id_2: "demo-user-1",
-        match_score: 0.85,
-        status: "accepted",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        other_user: {
-          id: "demo-user-1",
-          username: "sarah_j",
-          full_name: "Sarah Johnson",
-          avatar_url: undefined,
-          bio: "Love hiking and coffee ☕ Always here to listen and support others on their mental health journey.",
-          mental_health_badges: ["Anxiety Warrior", "Mental Health Advocate"],
+      console.error("Error fetching potential matches:", error)
+      // Return demo data on error
+      return [
+        {
+          id: "demo-match-1",
+          email: "alex@example.com",
+          full_name: "Alex Johnson",
+          avatar_url: null,
+          bio: "Love hiking and photography. Looking for someone to explore the city with!",
           age: 28,
           location: "San Francisco, CA",
-        },
-      },
-      {
-        id: "demo-match-2",
-        profile_id_1: "current-user",
-        profile_id_2: "demo-user-2",
-        match_score: 0.75,
-        status: "accepted",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        other_user: {
-          id: "demo-user-2",
-          username: "mike_chen",
-          full_name: "Mike Chen",
-          avatar_url: undefined,
-          bio: "Photographer and traveler 📸 Passionate about mindfulness and helping others find peace.",
-          mental_health_badges: ["Depression Fighter", "Mindfulness Practitioner"],
-          age: 32,
-          location: "Los Angeles, CA",
-        },
-      },
-    ]
-  }
-
-  async getPotentialMatches(userId: string): Promise<PotentialMatch[]> {
-    try {
-      // Get users that aren't already matched or rejected
-      const { data: existingMatches } = await this.supabase
-        .from("matches")
-        .select("profile_id_1, profile_id_2")
-        .or(`profile_id_1.eq.${userId},profile_id_2.eq.${userId}`)
-
-      const excludedUserIds = new Set([userId])
-      existingMatches?.forEach((match) => {
-        excludedUserIds.add(match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1)
-      })
-
-      const { data: potentialMatches, error } = await this.supabase
-        .from("profiles")
-        .select("*")
-        .not("id", "in", `(${Array.from(excludedUserIds).join(",")})`)
-        .limit(10)
-
-      if (error) {
-        console.error("Error fetching potential matches:", error)
-        return this.getDemoPotentialMatches()
-      }
-
-      return (potentialMatches || []).map((profile) => ({
-        ...profile,
-        match_score: Math.random() * 0.4 + 0.6, // Random score between 0.6-1.0
-      }))
-    } catch (error) {
-      console.error("Error in getPotentialMatches:", error)
-      return this.getDemoPotentialMatches()
-    }
-  }
-
-  private getDemoPotentialMatches(): PotentialMatch[] {
-    return [
-      {
-        id: "demo-potential-1",
-        username: "alex_rivera",
-        full_name: "Alex Rivera",
-        avatar_url: undefined,
-        bio: "Artist and mental health advocate 🎨 Creating art to express emotions and heal.",
-        mental_health_badges: ["Bipolar Warrior", "Art Therapy"],
-        age: 25,
-        location: "New York, NY",
-        match_score: 0.92,
-      },
-      {
-        id: "demo-potential-2",
-        username: "emma_davis",
-        full_name: "Emma Davis",
-        avatar_url: undefined,
-        bio: "Yoga instructor and wellness coach 🧘‍♀️ Helping others find balance and inner peace.",
-        mental_health_badges: ["Anxiety Warrior", "Yoga Practitioner"],
-        age: 30,
-        location: "Austin, TX",
-        match_score: 0.88,
-      },
-    ]
-  }
-
-  async acceptMatch(userId: string, otherUserId: string): Promise<boolean> {
-    try {
-      // Check if match already exists
-      const { data: existingMatch } = await this.supabase
-        .from("matches")
-        .select("*")
-        .or(
-          `and(profile_id_1.eq.${userId},profile_id_2.eq.${otherUserId}),and(profile_id_1.eq.${otherUserId},profile_id_2.eq.${userId})`,
-        )
-        .single()
-
-      if (existingMatch) {
-        // Update existing match
-        const { error } = await this.supabase
-          .from("matches")
-          .update({
-            status: "accepted",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", existingMatch.id)
-
-        return !error
-      } else {
-        // Create new match
-        const { error } = await this.supabase.from("matches").insert({
-          profile_id_1: userId,
-          profile_id_2: otherUserId,
-          status: "accepted",
-          match_score: Math.random() * 0.4 + 0.6,
-        })
-
-        return !error
-      }
-    } catch (error) {
-      console.error("Error accepting match:", error)
-      return false
-    }
-  }
-
-  async rejectMatch(userId: string, otherUserId: string): Promise<boolean> {
-    try {
-      // Check if match already exists
-      const { data: existingMatch } = await this.supabase
-        .from("matches")
-        .select("*")
-        .or(
-          `and(profile_id_1.eq.${userId},profile_id_2.eq.${otherUserId}),and(profile_id_1.eq.${otherUserId},profile_id_2.eq.${userId})`,
-        )
-        .single()
-
-      if (existingMatch) {
-        // Update existing match
-        const { error } = await this.supabase
-          .from("matches")
-          .update({
-            status: "rejected",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", existingMatch.id)
-
-        return !error
-      } else {
-        // Create new rejected match
-        const { error } = await this.supabase.from("matches").insert({
-          profile_id_1: userId,
-          profile_id_2: otherUserId,
-          status: "rejected",
-          match_score: 0,
-        })
-
-        return !error
-      }
-    } catch (error) {
-      console.error("Error rejecting match:", error)
-      return false
-    }
-  }
-
-  async unmatchUser(userId: string, otherUserId: string): Promise<boolean> {
-    try {
-      const { error } = await this.supabase
-        .from("matches")
-        .update({
-          status: "unmatched",
+          interests: ["hiking", "photography", "travel"],
+          mode: "dating" as const,
+          is_premium: false,
+          created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        })
-        .or(
-          `and(profile_id_1.eq.${userId},profile_id_2.eq.${otherUserId}),and(profile_id_1.eq.${otherUserId},profile_id_2.eq.${userId})`,
-        )
+        },
+        {
+          id: "demo-match-2",
+          email: "sam@example.com",
+          full_name: "Sam Wilson",
+          avatar_url: null,
+          bio: "Coffee enthusiast and book lover. Always up for deep conversations!",
+          age: 25,
+          location: "New York, NY",
+          interests: ["reading", "coffee", "art"],
+          mode: "friendship" as const,
+          is_premium: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        },
+      ]
+    }
+  }
 
-      return !error
+  async createMatch(userId: string, targetUserId: string, action: "like" | "pass") {
+    try {
+      const status = action === "like" ? "pending" : "rejected"
+
+      const { data, error } = await this.supabase
+        .from("matches")
+        .insert({
+          user_1: userId,
+          user_2: targetUserId,
+          status,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+
+      // Check if it's a mutual match
+      if (action === "like") {
+        const { data: mutualMatch } = await this.supabase
+          .from("matches")
+          .select("*")
+          .eq("user_1", targetUserId)
+          .eq("user_2", userId)
+          .eq("status", "pending")
+          .single()
+
+        if (mutualMatch) {
+          // Update both matches to 'matched'
+          await this.supabase.from("matches").update({ status: "matched" }).in("id", [data.id, mutualMatch.id])
+
+          return { ...data, is_mutual: true }
+        }
+      }
+
+      return { ...data, is_mutual: false }
     } catch (error) {
-      console.error("Error unmatching user:", error)
-      return false
+      console.error("Error creating match:", error)
+      throw error
+    }
+  }
+
+  async getMatches(userId: string) {
+    try {
+      const { data, error } = await this.supabase
+        .from("matches")
+        .select(`
+          *,
+          user_1_profile:profiles!matches_user_1_fkey(id, full_name, avatar_url, bio),
+          user_2_profile:profiles!matches_user_2_fkey(id, full_name, avatar_url, bio)
+        `)
+        .or(`user_1.eq.${userId},user_2.eq.${userId}`)
+        .eq("status", "matched")
+        .order("created_at", { ascending: false })
+
+      if (error) throw error
+
+      return (
+        data?.map((match) => ({
+          ...match,
+          other_user: match.user_1 === userId ? match.user_2_profile : match.user_1_profile,
+        })) || []
+      )
+    } catch (error) {
+      console.error("Error fetching matches:", error)
+      return []
     }
   }
 }
