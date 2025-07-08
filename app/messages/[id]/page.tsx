@@ -5,9 +5,9 @@ import { useParams } from "next/navigation"
 import { useAuth } from "@/components/auth/auth-provider"
 import { messagingService } from "@/lib/messaging-service"
 import { MessageThread } from "@/components/messaging/message-thread"
-import { Card } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { MessageCircle } from "lucide-react"
+import { ArrowLeft, MessageCircle } from "lucide-react"
 import Link from "next/link"
 
 export default function MessagePage() {
@@ -53,7 +53,7 @@ export default function MessagePage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-amber-50 flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
-          <div className="p-6 text-center">
+          <CardContent className="p-6 text-center">
             <div className="bg-rose-100 rounded-full p-3 w-12 h-12 mx-auto mb-4 flex items-center justify-center">
               <MessageCircle className="h-6 w-6 text-rose-600" />
             </div>
@@ -65,7 +65,7 @@ export default function MessagePage() {
             >
               <Link href="/login">Go to Login</Link>
             </Button>
-          </div>
+          </CardContent>
         </Card>
       </div>
     )
@@ -81,10 +81,21 @@ export default function MessagePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-amber-50">
-      <div className="container mx-auto px-4 py-8 h-[calc(100vh-200px)]">
-        <Card className="h-full">
+      <div className="container mx-auto px-4 py-6">
+        <div className="max-w-4xl mx-auto">
+          {/* Back button for desktop */}
+          <div className="hidden md:block mb-4">
+            <Button variant="ghost" asChild>
+              <Link href="/messages" className="flex items-center gap-2">
+                <ArrowLeft className="h-4 w-4" />
+                Back to Messages
+              </Link>
+            </Button>
+          </div>
+
+          {/* Message thread */}
           <MessageThread conversationId={conversationId} otherUser={otherUser} />
-        </Card>
+        </div>
       </div>
     </div>
   )

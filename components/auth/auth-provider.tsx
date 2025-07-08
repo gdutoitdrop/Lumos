@@ -1,54 +1,117 @@
 "use client"
 
 import type React from "react"
-
 import { createContext, useContext, useEffect, useState } from "react"
-import type { User } from "@supabase/auth-helpers-nextjs"
+import type { Session, User } from "@supabase/supabase-js"
 import { createClient } from "@/lib/supabase/client"
+import { useRouter } from "next/navigation"
 
-interface AuthContextType {
+type AuthContextType = {
   user: User | null
-  loading: boolean
+  session: Session | null
+  isLoading: boolean
+  signOut: () => Promise<void>
 }
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  loading: true,
-})
-
-export const useAuth = () => {
-  const context = useContext(AuthContext)
-  if (!context) {
-    throw new Error("useAuth must be used within an AuthProvider")
-  }
-  return context
-}
+const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [session, setSession] = useState<Session | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const router = useRouter()
   const supabase = createClient()
 
   useEffect(() => {
-    const getUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-      setUser(user)
-      setLoading(false)
+    let mounted = true
+
+    const getSession = async () => {
+      try {
+        const {
+          data: { session },
+          error,
+        } = await supabase.auth.getSession()
+
+        if (error) {
+          console.error("Error getting session:", error)
+        }
+
+        if (mounted) {
+          setSession(session)
+          setUser(session?.user ?? null)
+          setIsLoading(false)
+        }
+      } catch (error) {
+        console.error("Error in getSession:", error)
+        if (mounted) {
+          setIsLoading(false)
+        }
+      }
     }
 
-    getUser()
+    getSession()
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setUser(session?.user ?? null)
-      setLoading(false)
+      console.log("Auth state changed:", event, session?.user?.id)
+
+      if (mounted) {
+        setSession(session)
+        setUser(session?.user ?? null)
+        setIsLoading(false)
+      }
+
+      if (event === "SIGNED_IN" && session) {
+        try {
+          const { data: profile, error } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", session.user.id)
+            .single()
+
+          if (error && error.code === "PGRST116") {
+            await supabase.from("profiles").insert({
+              id: session.user.id,
+              username: session.user.email,
+              full_name: session.user.user_metadata?.full_name || session.user.email,
+            })
+          }
+        } catch (error) {
+          console.error("Error handling profile:", error)
+        }
+      }
+
+      if (!mounted) return
+      router.refresh()
     })
 
-    return () => subscription.unsubscribe()
-  }, [supabase.auth])
+    return () => {
+      mounted = false
+      subscription.unsubscribe()
+    }
+  }, [router, supabase])
 
-  return <AuthContext.Provider value={{ user, loading }}>{children}</AuthContext.Provider>
+  const signOut = async () => {
+    try {
+      const { error } = await supabase.auth.signOut()
+      if (error) {
+        throw error
+      }
+      router.push("/")
+    } catch (error) {
+      console.error("Error signing out:", error)
+      throw error
+    }
+  }
+
+  return <AuthContext.Provider value={{ user, session, isLoading, signOut }}>{children}</AuthContext.Provider>
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext)
+  if (context === undefined) {
+    throw new Error("useAuth must be used within an AuthProvider")
+  }
+  return context
 }
