@@ -9,19 +9,21 @@ import { Button } from "@/components/ui/button"
 import { ArrowLeft, MessageCircle } from "lucide-react"
 
 interface MatchConversationPageProps {
-  params: {
-    id: string
-  }
+  params:
+    | Promise<{
+        id: string
+      }>
+    | {
+        id: string
+      }
 }
 
 export default function MatchConversationPage({ params }: MatchConversationPageProps) {
   const { user } = useAuth()
   const supabase = createClient()
-  const matchId = params.id
 
-  // Extract actual match ID (remove "match-" prefix if present)
-  const actualMatchId = matchId.startsWith("match-") ? matchId.replace("match-", "") : matchId
-
+  const [matchId, setMatchId] = useState<string>("")
+  const [actualMatchId, setActualMatchId] = useState<string>("")
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [participantInfo, setParticipantInfo] = useState<{
     name: string
@@ -31,10 +33,33 @@ export default function MatchConversationPage({ params }: MatchConversationPageP
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Handle params (could be Promise in Next.js 15)
+  useEffect(() => {
+    const resolveParams = async () => {
+      try {
+        const resolvedParams = await Promise.resolve(params)
+        const id = resolvedParams?.id || ""
+        setMatchId(id)
+
+        // Extract actual match ID (remove "match-" prefix if present)
+        const cleanId = id && typeof id === "string" && id.startsWith("match-") ? id.replace("match-", "") : id || ""
+        setActualMatchId(cleanId)
+      } catch (error) {
+        console.error("Error resolving params:", error)
+        setError("Invalid conversation ID")
+        setLoading(false)
+      }
+    }
+
+    resolveParams()
+  }, [params])
+
   useEffect(() => {
     const initializeConversation = async () => {
       if (!user || !actualMatchId) {
-        setLoading(false)
+        if (!user) {
+          setLoading(false)
+        }
         return
       }
 
@@ -125,14 +150,35 @@ export default function MatchConversationPage({ params }: MatchConversationPageP
     initializeConversation()
   }, [user, actualMatchId, supabase])
 
-  if (!user) {
+  // Handle case where params are not resolved yet
+  if (!matchId) {
     return (
       <div className="h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-rose-500 mx-auto mb-4"></div>
+          <h3 className="text-lg font-medium text-slate-600 mb-2">Loading...</h3>
+          <p className="text-slate-500">Initializing conversation</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-rose-50 via-white to-amber-50">
         <Card className="w-96">
           <CardContent className="p-6 text-center">
+            <div className="bg-rose-100 rounded-full p-3 w-12 h-12 mx-auto mb-4 flex items-center justify-center">
+              <MessageCircle className="h-6 w-6 text-rose-600" />
+            </div>
             <h2 className="text-xl font-semibold mb-4">Authentication Required</h2>
             <p className="text-slate-600 mb-4">Please log in to access messages.</p>
-            <Button onClick={() => (window.location.href = "/login")}>Go to Login</Button>
+            <Button
+              onClick={() => (window.location.href = "/login")}
+              className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
+            >
+              Go to Login
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -141,7 +187,7 @@ export default function MatchConversationPage({ params }: MatchConversationPageP
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-rose-50 via-white to-amber-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-rose-500 mx-auto mb-4"></div>
           <h3 className="text-lg font-medium text-slate-600 mb-2">Loading conversation...</h3>
@@ -153,7 +199,7 @@ export default function MatchConversationPage({ params }: MatchConversationPageP
 
   if (error && !conversationId) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="h-screen flex items-center justify-center bg-gradient-to-br from-rose-50 via-white to-amber-50">
         <Card className="w-96">
           <CardContent className="p-6 text-center">
             <div className="bg-red-100 rounded-full p-3 w-12 h-12 mx-auto mb-4 flex items-center justify-center">
@@ -175,9 +221,9 @@ export default function MatchConversationPage({ params }: MatchConversationPageP
   }
 
   return (
-    <div className="h-screen">
+    <div className="h-screen bg-gradient-to-br from-rose-50 via-white to-amber-50">
       <EnhancedMessageThread
-        conversationId={conversationId || `demo-${user.id}-${actualMatchId}`}
+        conversationId={conversationId || `demo-${user?.id || "anonymous"}-${actualMatchId}`}
         matchId={actualMatchId}
         participantInfo={participantInfo || undefined}
       />
