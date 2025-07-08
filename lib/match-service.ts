@@ -35,93 +35,8 @@ export interface PotentialMatch {
 class MatchService {
   private supabase = createClient()
 
-  private getDemoMatches(): Match[] {
-    return [
-      {
-        id: "demo-match-1",
-        profile_id_1: "current-user",
-        profile_id_2: "demo-user-1",
-        match_score: 0.85,
-        status: "accepted",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        other_user: {
-          id: "demo-user-1",
-          username: "sarah_j",
-          full_name: "Sarah Johnson",
-          avatar_url: "/placeholder.svg?height=100&width=100&text=SJ",
-          bio: "Love hiking and coffee ☕ Always here to listen and support others on their mental health journey.",
-          mental_health_badges: ["Anxiety Warrior", "Mental Health Advocate"],
-          age: 28,
-          location: "San Francisco, CA",
-        },
-      },
-      {
-        id: "demo-match-2",
-        profile_id_1: "current-user",
-        profile_id_2: "demo-user-2",
-        match_score: 0.75,
-        status: "accepted",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        other_user: {
-          id: "demo-user-2",
-          username: "mike_chen",
-          full_name: "Mike Chen",
-          avatar_url: "/placeholder.svg?height=100&width=100&text=MC",
-          bio: "Photographer and traveler 📸 Passionate about mindfulness and helping others find peace.",
-          mental_health_badges: ["Depression Fighter", "Mindfulness Practitioner"],
-          age: 32,
-          location: "Los Angeles, CA",
-        },
-      },
-    ]
-  }
-
-  private getDemoPotentialMatches(): PotentialMatch[] {
-    return [
-      {
-        id: "demo-potential-1",
-        username: "alex_rivera",
-        full_name: "Alex Rivera",
-        avatar_url: "/placeholder.svg?height=100&width=100&text=AR",
-        bio: "Artist and mental health advocate 🎨 Creating art to express emotions and heal.",
-        mental_health_badges: ["Bipolar Warrior", "Art Therapy"],
-        age: 25,
-        location: "New York, NY",
-        match_score: 0.92,
-      },
-      {
-        id: "demo-potential-2",
-        username: "emma_davis",
-        full_name: "Emma Davis",
-        avatar_url: "/placeholder.svg?height=100&width=100&text=ED",
-        bio: "Yoga instructor and wellness coach 🧘‍♀️ Helping others find balance and inner peace.",
-        mental_health_badges: ["Anxiety Warrior", "Yoga Practitioner"],
-        age: 30,
-        location: "Austin, TX",
-        match_score: 0.88,
-      },
-      {
-        id: "demo-potential-3",
-        username: "jordan_kim",
-        full_name: "Jordan Kim",
-        avatar_url: "/placeholder.svg?height=100&width=100&text=JK",
-        bio: "Writer and mental health blogger ✍️ Sharing stories to help others feel less alone.",
-        mental_health_badges: ["PTSD Survivor", "Writing Therapy"],
-        age: 27,
-        location: "Seattle, WA",
-        match_score: 0.81,
-      },
-    ]
-  }
-
   async getUserMatches(userId: string): Promise<Match[]> {
     try {
-      if (!userId) {
-        return this.getDemoMatches()
-      }
-
       const { data: matches, error } = await this.supabase
         .from("matches")
         .select("*")
@@ -129,10 +44,16 @@ class MatchService {
         .eq("status", "accepted")
         .order("updated_at", { ascending: false })
 
-      if (error || !matches || matches.length === 0) {
+      if (error) {
+        console.error("Error fetching matches:", error)
         return this.getDemoMatches()
       }
 
+      if (!matches || matches.length === 0) {
+        return this.getDemoMatches()
+      }
+
+      // Get other user profiles for each match
       const matchesWithProfiles = await Promise.all(
         matches.map(async (match) => {
           const otherUserId = match.profile_id_1 === userId ? match.profile_id_2 : match.profile_id_1
@@ -154,20 +75,59 @@ class MatchService {
         }),
       )
 
-      const validMatches = matchesWithProfiles.filter((match) => match !== null) as Match[]
-      return validMatches.length > 0 ? validMatches : this.getDemoMatches()
+      return matchesWithProfiles.filter((match) => match !== null) as Match[]
     } catch (error) {
       console.error("Error in getUserMatches:", error)
       return this.getDemoMatches()
     }
   }
 
+  private getDemoMatches(): Match[] {
+    return [
+      {
+        id: "demo-match-1",
+        profile_id_1: "current-user",
+        profile_id_2: "demo-user-1",
+        match_score: 0.85,
+        status: "accepted",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        other_user: {
+          id: "demo-user-1",
+          username: "sarah_j",
+          full_name: "Sarah Johnson",
+          avatar_url: undefined,
+          bio: "Love hiking and coffee ☕ Always here to listen and support others on their mental health journey.",
+          mental_health_badges: ["Anxiety Warrior", "Mental Health Advocate"],
+          age: 28,
+          location: "San Francisco, CA",
+        },
+      },
+      {
+        id: "demo-match-2",
+        profile_id_1: "current-user",
+        profile_id_2: "demo-user-2",
+        match_score: 0.75,
+        status: "accepted",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        other_user: {
+          id: "demo-user-2",
+          username: "mike_chen",
+          full_name: "Mike Chen",
+          avatar_url: undefined,
+          bio: "Photographer and traveler 📸 Passionate about mindfulness and helping others find peace.",
+          mental_health_badges: ["Depression Fighter", "Mindfulness Practitioner"],
+          age: 32,
+          location: "Los Angeles, CA",
+        },
+      },
+    ]
+  }
+
   async getPotentialMatches(userId: string): Promise<PotentialMatch[]> {
     try {
-      if (!userId) {
-        return this.getDemoPotentialMatches()
-      }
-
+      // Get users that aren't already matched or rejected
       const { data: existingMatches } = await this.supabase
         .from("matches")
         .select("profile_id_1, profile_id_2")
@@ -184,13 +144,14 @@ class MatchService {
         .not("id", "in", `(${Array.from(excludedUserIds).join(",")})`)
         .limit(10)
 
-      if (error || !potentialMatches || potentialMatches.length === 0) {
+      if (error) {
+        console.error("Error fetching potential matches:", error)
         return this.getDemoPotentialMatches()
       }
 
-      return potentialMatches.map((profile) => ({
+      return (potentialMatches || []).map((profile) => ({
         ...profile,
-        match_score: Math.random() * 0.4 + 0.6,
+        match_score: Math.random() * 0.4 + 0.6, // Random score between 0.6-1.0
       }))
     } catch (error) {
       console.error("Error in getPotentialMatches:", error)
@@ -198,10 +159,36 @@ class MatchService {
     }
   }
 
+  private getDemoPotentialMatches(): PotentialMatch[] {
+    return [
+      {
+        id: "demo-potential-1",
+        username: "alex_rivera",
+        full_name: "Alex Rivera",
+        avatar_url: undefined,
+        bio: "Artist and mental health advocate 🎨 Creating art to express emotions and heal.",
+        mental_health_badges: ["Bipolar Warrior", "Art Therapy"],
+        age: 25,
+        location: "New York, NY",
+        match_score: 0.92,
+      },
+      {
+        id: "demo-potential-2",
+        username: "emma_davis",
+        full_name: "Emma Davis",
+        avatar_url: undefined,
+        bio: "Yoga instructor and wellness coach 🧘‍♀️ Helping others find balance and inner peace.",
+        mental_health_badges: ["Anxiety Warrior", "Yoga Practitioner"],
+        age: 30,
+        location: "Austin, TX",
+        match_score: 0.88,
+      },
+    ]
+  }
+
   async acceptMatch(userId: string, otherUserId: string): Promise<boolean> {
     try {
-      if (!userId || !otherUserId) return false
-
+      // Check if match already exists
       const { data: existingMatch } = await this.supabase
         .from("matches")
         .select("*")
@@ -211,6 +198,7 @@ class MatchService {
         .single()
 
       if (existingMatch) {
+        // Update existing match
         const { error } = await this.supabase
           .from("matches")
           .update({
@@ -221,6 +209,7 @@ class MatchService {
 
         return !error
       } else {
+        // Create new match
         const { error } = await this.supabase.from("matches").insert({
           profile_id_1: userId,
           profile_id_2: otherUserId,
@@ -238,8 +227,7 @@ class MatchService {
 
   async rejectMatch(userId: string, otherUserId: string): Promise<boolean> {
     try {
-      if (!userId || !otherUserId) return false
-
+      // Check if match already exists
       const { data: existingMatch } = await this.supabase
         .from("matches")
         .select("*")
@@ -249,6 +237,7 @@ class MatchService {
         .single()
 
       if (existingMatch) {
+        // Update existing match
         const { error } = await this.supabase
           .from("matches")
           .update({
@@ -259,6 +248,7 @@ class MatchService {
 
         return !error
       } else {
+        // Create new rejected match
         const { error } = await this.supabase.from("matches").insert({
           profile_id_1: userId,
           profile_id_2: otherUserId,
@@ -276,8 +266,6 @@ class MatchService {
 
   async unmatchUser(userId: string, otherUserId: string): Promise<boolean> {
     try {
-      if (!userId || !otherUserId) return false
-
       const { error } = await this.supabase
         .from("matches")
         .update({

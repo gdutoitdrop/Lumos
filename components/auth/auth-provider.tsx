@@ -11,6 +11,7 @@ type AuthContextType = {
   session: Session | null
   isLoading: boolean
   signOut: () => Promise<void>
+  resetPassword: (email: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -63,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (event === "SIGNED_IN" && session) {
+        // Ensure user profile exists
         try {
           const { data: profile, error } = await supabase
             .from("profiles")
@@ -71,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             .single()
 
           if (error && error.code === "PGRST116") {
+            // Profile doesn't exist, create it
             await supabase.from("profiles").insert({
               id: session.user.id,
               username: session.user.email,
@@ -82,6 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
+      // Only refresh router if not loading
       if (!mounted) return
       router.refresh()
     })
@@ -105,7 +109,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
-  return <AuthContext.Provider value={{ user, session, isLoading, signOut }}>{children}</AuthContext.Provider>
+  const resetPassword = async (email: string) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      if (error) {
+        throw error
+      }
+    } catch (error) {
+      console.error("Error resetting password:", error)
+      throw error
+    }
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, session, isLoading, signOut, resetPassword }}>{children}</AuthContext.Provider>
+  )
 }
 
 export function useAuth() {

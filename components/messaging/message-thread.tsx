@@ -4,78 +4,94 @@ import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
 import { useAuth } from "@/components/auth/auth-provider"
-import { messagingService, type Message } from "@/lib/messaging-service"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Card, CardContent } from "@/components/ui/card"
-import { Send, ArrowLeft } from "lucide-react"
-import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { Send, Phone, Video, MoreVertical, PhoneCall } from "lucide-react"
+import { messagingService, type Message, type Conversation } from "@/lib/messaging-service"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface MessageThreadProps {
   conversationId: string
-  otherUser?: {
-    id: string
-    username: string
-    full_name: string
-    avatar_url?: string
-  }
+  onStartCall?: (userId: string, callType: "audio" | "video") => void
 }
 
-export function MessageThread({ conversationId, otherUser }: MessageThreadProps) {
+export function MessageThread({ conversationId, onStartCall }: MessageThreadProps) {
   const { user } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [conversation, setConversation] = useState<Conversation | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
   useEffect(() => {
-    const fetchMessages = async () => {
-      setLoading(true)
+    if (!conversationId || !user) return
+
+    const fetchData = async () => {
       try {
-        const conversationMessages = await messagingService.getConversationMessages(conversationId)
-        setMessages(conversationMessages)
+        setError(null)
+        setLoading(true)
+
+        console.log("Fetching data for conversation:", conversationId)
+
+        // Fetch conversation details
+        const conversations = await messagingService.getUserConversations(user.id)
+        const currentConversation = conversations.find((c) => c.id === conversationId)
+        console.log("Found conversation:", currentConversation)
+        setConversation(currentConversation || null)
+
+        // Fetch messages
+        const messages = await messagingService.getConversationMessages(conversationId)
+        console.log("Fetched messages:", messages)
+        setMessages(messages)
       } catch (error) {
-        console.error("Error fetching messages:", error)
+        console.error("Error fetching conversation data:", error)
+        setError("Failed to load conversation")
       } finally {
         setLoading(false)
       }
     }
 
-    fetchMessages()
+    fetchData()
 
     // Subscribe to new messages
-    const subscription = messagingService.subscribeToMessages(conversationId, (message) => {
+    const subscription = messagingService.subscribeToConversation(conversationId, (message) => {
+      console.log("Received new message:", message)
       setMessages((prev) => [...prev, message])
     })
 
     return () => {
+      console.log("Unsubscribing from conversation")
       subscription.unsubscribe()
     }
-  }, [conversationId])
+  }, [conversationId, user])
 
   useEffect(() => {
-    scrollToBottom()
+    // Scroll to bottom when messages change
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
-  const handleSendMessage = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newMessage.trim() || !user || sending) return
+  const handleSendMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault()
+
+    if (!user || !conversationId || !newMessage.trim()) {
+      console.log("Cannot send message - missing data")
+      return
+    }
 
     setSending(true)
+    setError(null)
+
     try {
-      const message = await messagingService.sendMessage(conversationId, user.id, newMessage.trim())
-      if (message) {
-        setMessages((prev) => [...prev, message])
-        setNewMessage("")
-      }
+      console.log("Sending message...")
+      await messagingService.sendMessage(conversationId, user.id, newMessage.trim())
+      setNewMessage("")
+      console.log("Message sent successfully")
     } catch (error) {
       console.error("Error sending message:", error)
+      setError("Failed to send message")
     } finally {
       setSending(false)
     }
@@ -97,140 +113,242 @@ export function MessageThread({ conversationId, otherUser }: MessageThreadProps)
     } else if (date.toDateString() === yesterday.toDateString()) {
       return "Yesterday"
     } else {
-      return date.toLocaleDateString([], { month: "short", day: "numeric" })
+      return date.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })
     }
   }
 
-  const shouldShowDateSeparator = (currentMessage: Message, previousMessage?: Message) => {
-    if (!previousMessage) return true
+  const groupMessagesByDate = () => {
+    const groups: { date: string; messages: Message[] }[] = []
 
-    const currentDate = new Date(currentMessage.created_at).toDateString()
-    const previousDate = new Date(previousMessage.created_at).toDateString()
+    messages.forEach((message) => {
+      const messageDate = formatMessageDate(message.created_at)
+      const existingGroup = groups.find((group) => group.date === messageDate)
 
-    return currentDate !== previousDate
+      if (existingGroup) {
+        existingGroup.messages.push(message)
+      } else {
+        groups.push({
+          date: messageDate,
+          messages: [message],
+        })
+      }
+    })
+
+    return groups
   }
 
-  if (!user) {
+  const getOtherParticipant = () => {
+    if (!conversation) return null
+    return conversation.participants.find((p) => p.user_id !== user?.id)
+  }
+
+  const renderMessage = (message: Message) => {
+    const isCurrentUser = message.sender_id === user?.id
+
+    if (message.message_type === "call_start" || message.message_type === "call_end") {
+      return (
+        <div key={message.id} className="flex justify-center">
+          <div className="bg-slate-100 dark:bg-slate-700 rounded-full px-4 py-2 text-sm text-slate-600 dark:text-slate-300 flex items-center">
+            <PhoneCall className="h-4 w-4 mr-2" />
+            {message.content}
+          </div>
+        </div>
+      )
+    }
+
     return (
-      <div className="flex items-center justify-center h-96">
-        <p className="text-slate-600">Please log in to view messages.</p>
+      <div key={message.id} className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
+        <div className={`flex ${isCurrentUser ? "flex-row-reverse" : "flex-row"} items-end gap-3 max-w-[80%]`}>
+          <Avatar className="h-8 w-8 flex-shrink-0">
+            <AvatarImage
+              src={message.sender_profile?.avatar_url || "/placeholder.svg"}
+              alt={message.sender_profile?.full_name || "User"}
+            />
+            <AvatarFallback
+              className={
+                isCurrentUser
+                  ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white"
+                  : "bg-slate-200 dark:bg-slate-700"
+              }
+            >
+              {isCurrentUser
+                ? user?.user_metadata?.full_name?.charAt(0) || "Y"
+                : message.sender_profile?.full_name?.charAt(0) || "U"}
+            </AvatarFallback>
+          </Avatar>
+
+          <div
+            className={`rounded-2xl px-4 py-3 ${
+              isCurrentUser
+                ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white rounded-br-md"
+                : "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-md"
+            }`}
+          >
+            <p className="text-sm leading-relaxed">{message.content}</p>
+            <p className={`text-xs mt-2 ${isCurrentUser ? "text-rose-100" : "text-slate-500 dark:text-slate-400"}`}>
+              {formatMessageTime(message.created_at)}
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const otherParticipant = getOtherParticipant()
+
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
+          <p className="text-slate-500 dark:text-slate-400">Loading conversation...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!conversation) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">Conversation not found</h3>
+          <p className="text-slate-500 dark:text-slate-400">
+            This conversation may have been deleted or you don't have access to it.
+          </p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col h-[600px] bg-white dark:bg-slate-900 rounded-lg border">
+    <div className="h-full flex flex-col bg-white dark:bg-slate-900">
       {/* Header */}
-      <div className="flex items-center gap-3 p-4 border-b bg-slate-50 dark:bg-slate-800 rounded-t-lg">
-        <Button variant="ghost" size="sm" asChild className="md:hidden">
-          <Link href="/messages">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
-        </Button>
-
-        {otherUser && (
-          <>
+      <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-rose-50 to-amber-50 dark:from-slate-800 dark:to-slate-700">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
             <Avatar className="h-10 w-10">
-              <AvatarImage src={otherUser.avatar_url || "/placeholder.svg"} alt={otherUser.full_name} />
+              <AvatarImage
+                src={otherParticipant?.profile?.avatar_url || "/placeholder.svg"}
+                alt={otherParticipant?.profile?.full_name || "User"}
+              />
               <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                {otherUser.full_name.charAt(0).toUpperCase()}
+                {otherParticipant?.profile?.full_name?.charAt(0) ||
+                  otherParticipant?.profile?.username?.charAt(0) ||
+                  "U"}
               </AvatarFallback>
             </Avatar>
             <div>
-              <h3 className="font-medium">{otherUser.full_name}</h3>
-              <p className="text-sm text-slate-500">@{otherUser.username}</p>
+              <h2 className="text-lg font-medium text-slate-800 dark:text-white">
+                {otherParticipant?.profile?.full_name || otherParticipant?.profile?.username || "Test User"}
+              </h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                @{otherParticipant?.profile?.username || "testuser"}
+              </p>
             </div>
-          </>
-        )}
+          </div>
+
+          <div className="flex items-center space-x-2">
+            {onStartCall && otherParticipant && (
+              <>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => onStartCall(otherParticipant.user_id, "audio")}
+                  className="hover:bg-green-50 hover:border-green-300"
+                >
+                  <Phone className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => onStartCall(otherParticipant.user_id, "video")}
+                  className="hover:bg-blue-50 hover:border-blue-300"
+                >
+                  <Video className="h-4 w-4" />
+                </Button>
+              </>
+            )}
+            <Button variant="outline" size="icon">
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
       </div>
 
+      {/* Error */}
+      {error && (
+        <Alert variant="destructive" className="m-4">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full">
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        {messages.length === 0 ? (
+          <div className="h-full flex items-center justify-center">
             <div className="text-center">
-              <p className="text-slate-500 mb-2">No messages yet</p>
-              <p className="text-sm text-slate-400">Start the conversation!</p>
+              <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                <Send className="h-8 w-8 text-white" />
+              </div>
+              <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">Start the conversation!</h3>
+              <p className="text-slate-500 dark:text-slate-400">
+                Send your first message or start a call to begin chatting.
+              </p>
             </div>
           </div>
         ) : (
-          <>
-            {messages.map((message, index) => {
-              const previousMessage = index > 0 ? messages[index - 1] : undefined
-              const showDateSeparator = shouldShowDateSeparator(message, previousMessage)
-              const isCurrentUser = message.sender_id === user.id
+          groupMessagesByDate().map((group, groupIndex) => (
+            <div key={groupIndex} className="space-y-4">
+              {/* Date separator */}
+              <div className="flex justify-center">
+                <span className="text-xs text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">
+                  {group.date}
+                </span>
+              </div>
 
-              return (
-                <div key={message.id}>
-                  {showDateSeparator && (
-                    <div className="flex items-center justify-center my-4">
-                      <div className="bg-slate-100 dark:bg-slate-700 px-3 py-1 rounded-full text-xs text-slate-500">
-                        {formatMessageDate(message.created_at)}
-                      </div>
-                    </div>
-                  )}
-
-                  <div className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
-                    <div className={`flex gap-2 max-w-[70%] ${isCurrentUser ? "flex-row-reverse" : "flex-row"}`}>
-                      {!isCurrentUser && (
-                        <Avatar className="h-8 w-8 mt-1">
-                          <AvatarImage
-                            src={message.sender?.avatar_url || "/placeholder.svg"}
-                            alt={message.sender?.full_name || "User"}
-                          />
-                          <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white text-xs">
-                            {(message.sender?.full_name || "U").charAt(0).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                      )}
-
-                      <div className={`flex flex-col ${isCurrentUser ? "items-end" : "items-start"}`}>
-                        <Card
-                          className={`${
-                            isCurrentUser
-                              ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white border-0"
-                              : "bg-slate-100 dark:bg-slate-700"
-                          }`}
-                        >
-                          <CardContent className="p-3">
-                            <p className="text-sm">{message.content}</p>
-                          </CardContent>
-                        </Card>
-                        <span className="text-xs text-slate-400 mt-1">{formatMessageTime(message.created_at)}</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-            <div ref={messagesEndRef} />
-          </>
+              {/* Messages for this date */}
+              {group.messages.map(renderMessage)}
+            </div>
+          ))
         )}
+        <div ref={messagesEndRef} />
       </div>
 
-      {/* Message input */}
-      <form onSubmit={handleSendMessage} className="p-4 border-t bg-slate-50 dark:bg-slate-800 rounded-b-lg">
-        <div className="flex gap-2">
-          <Input
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            placeholder="Type a message..."
-            disabled={sending}
-            className="flex-1"
-          />
+      {/* Message Input */}
+      <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        <form onSubmit={handleSendMessage} className="flex items-end gap-3">
+          <div className="flex-1">
+            <Textarea
+              placeholder="Type your message..."
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              className="min-h-[60px] max-h-[120px] resize-none border-slate-300 dark:border-slate-600 focus:border-rose-500 dark:focus:border-rose-400"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault()
+                  handleSendMessage()
+                }
+              }}
+              disabled={sending}
+            />
+          </div>
           <Button
             type="submit"
-            disabled={!newMessage.trim() || sending}
-            className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
+            size="icon"
+            className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white h-12 w-12 rounded-xl shadow-md"
+            disabled={sending || !newMessage.trim()}
           >
-            <Send className="h-4 w-4" />
+            {sending ? (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+            ) : (
+              <Send className="h-5 w-5" />
+            )}
           </Button>
-        </div>
-      </form>
+        </form>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
+          {sending ? "Sending message..." : "Press Enter to send, Shift+Enter for new line"}
+        </p>
+      </div>
     </div>
   )
 }

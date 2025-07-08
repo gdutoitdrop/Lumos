@@ -8,14 +8,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Search, MessageCircle, Plus, Users, Heart } from "lucide-react"
-import Link from "next/link"
+import { Search, MessageCircle, Plus, Users, Heart, AlertCircle } from "lucide-react"
 
 export default function MessagesPage() {
   const { user } = useAuth()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchConversations = async () => {
@@ -25,11 +25,14 @@ export default function MessagesPage() {
       }
 
       setLoading(true)
+      setError(null)
+
       try {
         const userConversations = await messagingService.getUserConversations(user.id)
         setConversations(userConversations)
       } catch (error) {
         console.error("Error fetching conversations:", error)
+        setError("Failed to load conversations")
         setConversations([])
       } finally {
         setLoading(false)
@@ -44,7 +47,7 @@ export default function MessagesPage() {
 
     const searchLower = searchQuery.toLowerCase()
     return (
-      conv.other_user.full_name?.toLowerCase().includes(searchLower) ||
+      conv.other_user.name?.toLowerCase().includes(searchLower) ||
       conv.other_user.username?.toLowerCase().includes(searchLower)
     )
   })
@@ -65,7 +68,7 @@ export default function MessagesPage() {
 
   const handleConversationClick = (conversation: Conversation) => {
     if (conversation.other_user) {
-      window.location.href = `/messages/${conversation.id}`
+      window.location.href = `/messages/match-${conversation.other_user.id}`
     }
   }
 
@@ -80,10 +83,10 @@ export default function MessagesPage() {
             <h2 className="text-xl font-semibold mb-4">Authentication Required</h2>
             <p className="text-slate-600 mb-4">Please log in to access your messages.</p>
             <Button
-              asChild
+              onClick={() => (window.location.href = "/login")}
               className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
             >
-              <Link href="/login">Go to Login</Link>
+              Go to Login
             </Button>
           </CardContent>
         </Card>
@@ -105,13 +108,11 @@ export default function MessagesPage() {
                   {conversations.length > 0 && <Badge variant="secondary">{conversations.length}</Badge>}
                 </CardTitle>
                 <Button
-                  asChild
+                  onClick={() => (window.location.href = "/matching")}
                   className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
                 >
-                  <Link href="/matching">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Find Matches
-                  </Link>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Find Matches
                 </Button>
               </div>
             </CardHeader>
@@ -131,6 +132,18 @@ export default function MessagesPage() {
               </div>
             </CardContent>
           </Card>
+
+          {/* Error Message */}
+          {error && (
+            <Card className="mb-6 border-red-200 bg-red-50">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 text-red-600" />
+                  <p className="text-red-600 text-sm">{error}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Conversations */}
           <Card>
@@ -154,20 +167,20 @@ export default function MessagesPage() {
                       : "Start connecting with people to begin conversations"}
                   </p>
                   <div className="flex gap-3 justify-center">
-                    <Button variant="outline" asChild className="flex items-center gap-2 bg-transparent">
-                      <Link href="/matching">
-                        <Heart className="h-4 w-4" />
-                        Find Matches
-                      </Link>
+                    <Button
+                      variant="outline"
+                      onClick={() => (window.location.href = "/matching")}
+                      className="flex items-center gap-2"
+                    >
+                      <Heart className="h-4 w-4" />
+                      Find Matches
                     </Button>
                     <Button
-                      asChild
+                      onClick={() => (window.location.href = "/community")}
                       className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
                     >
-                      <Link href="/community">
-                        <Users className="h-4 w-4 mr-2" />
-                        Join Community
-                      </Link>
+                      <Users className="h-4 w-4 mr-2" />
+                      Join Community
                     </Button>
                   </div>
                 </div>
@@ -181,21 +194,24 @@ export default function MessagesPage() {
                     >
                       <div className="flex items-center gap-3">
                         <Avatar className="h-12 w-12">
-                          <AvatarImage
-                            src={conversation.other_user.avatar_url || "/placeholder.svg"}
-                            alt={conversation.other_user.full_name || conversation.other_user.username}
-                          />
-                          <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                            {(conversation.other_user.full_name || conversation.other_user.username || "U")
-                              .charAt(0)
-                              .toUpperCase()}
-                          </AvatarFallback>
+                          {conversation.other_user?.avatar_url ? (
+                            <AvatarImage
+                              src={conversation.other_user.avatar_url || "/placeholder.svg"}
+                              alt={conversation.other_user.name || conversation.other_user.username}
+                            />
+                          ) : (
+                            <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
+                              {(conversation.other_user?.name || conversation.other_user?.username || "U")
+                                .charAt(0)
+                                .toUpperCase()}
+                            </AvatarFallback>
+                          )}
                         </Avatar>
 
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-1">
                             <h3 className="font-medium text-slate-800 truncate">
-                              {conversation.other_user.full_name || conversation.other_user.username}
+                              {conversation.other_user?.name || conversation.other_user?.username}
                             </h3>
                             <div className="flex items-center gap-2">
                               {conversation.unread_count > 0 && (
@@ -211,7 +227,7 @@ export default function MessagesPage() {
                             </div>
                           </div>
 
-                          <p className="text-sm text-slate-500 mb-1">@{conversation.other_user.username}</p>
+                          <p className="text-sm text-slate-500 mb-1">@{conversation.other_user?.username}</p>
 
                           {conversation.last_message && (
                             <p className="text-sm text-slate-600 truncate">
