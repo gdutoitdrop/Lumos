@@ -1,40 +1,41 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useAuth } from "@/components/auth/auth-provider"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { MessageCircle, Plus, Search, Users } from "lucide-react"
+import { MessageCircle, Plus, Search, Users, Heart } from "lucide-react"
 import { Input } from "@/components/ui/input"
-
-interface Conversation {
-  id: string
-  created_at: string
-  updated_at: string
-  other_user: {
-    id: string
-    name: string
-    username: string
-    avatar_url?: string
-  }
-  last_message?: {
-    content: string
-    created_at: string
-    sender_id: string
-  }
-  unread_count: number
-}
+import { messagingService, type Conversation } from "@/lib/simple-messaging"
 
 export default function MessagesPage() {
-  const { user } = useAuth()
   const supabase = createClient()
-
+  const [user, setUser] = useState<any>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState("")
+
+  useEffect(() => {
+    const getUser = async () => {
+      try {
+        const {
+          data: { user },
+          error,
+        } = await supabase.auth.getUser()
+        if (error) {
+          console.error("Error getting user:", error)
+        } else {
+          setUser(user)
+        }
+      } catch (error) {
+        console.error("Error in getUser:", error)
+      }
+    }
+
+    getUser()
+  }, [supabase])
 
   useEffect(() => {
     const fetchConversations = async () => {
@@ -46,146 +47,40 @@ export default function MessagesPage() {
       setLoading(true)
 
       try {
-        // Try to fetch real conversations
-        const { data: participantData, error: participantError } = await supabase
-          .from("conversation_participants")
-          .select(`
-            conversation_id,
-            conversations (
-              id,
-              created_at,
-              updated_at
-            )
-          `)
-          .eq("user_id", user.id)
-
-        if (participantError) {
-          console.error("Error fetching conversations:", participantError)
-          // Use demo conversations
-          setConversations([
-            {
-              id: "demo-1",
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              other_user: {
-                id: "demo-user-1",
-                name: "Sarah Johnson",
-                username: "sarah_j",
-                avatar_url: undefined,
-              },
-              last_message: {
-                content: "Hey! How are you doing today?",
-                created_at: new Date().toISOString(),
-                sender_id: "demo-user-1",
-              },
-              unread_count: 2,
-            },
-            {
-              id: "demo-2",
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-              other_user: {
-                id: "demo-user-2",
-                name: "Mike Chen",
-                username: "mike_c",
-                avatar_url: undefined,
-              },
-              last_message: {
-                content: "Thanks for the great conversation!",
-                created_at: new Date().toISOString(),
-                sender_id: user.id,
-              },
-              unread_count: 0,
-            },
-          ])
-          setLoading(false)
-          return
-        }
-
-        if (!participantData || participantData.length === 0) {
-          setConversations([])
-          setLoading(false)
-          return
-        }
-
-        // Fetch other participants and messages for each conversation
-        const conversationsWithDetails = await Promise.all(
-          participantData.map(async (participant) => {
-            const conversationId = participant.conversation_id
-
-            // Get other participants
-            const { data: otherParticipants } = await supabase
-              .from("conversation_participants")
-              .select(`
-                user_id,
-                profiles (
-                  id,
-                  username,
-                  full_name,
-                  avatar_url
-                )
-              `)
-              .eq("conversation_id", conversationId)
-              .neq("user_id", user.id)
-
-            // Get last message
-            const { data: lastMessage } = await supabase
-              .from("messages")
-              .select("content, message_text, created_at, sender_id")
-              .eq("conversation_id", conversationId)
-              .order("created_at", { ascending: false })
-              .limit(1)
-
-            // Get unread count
-            const { count: unreadCount } = await supabase
-              .from("messages")
-              .select("*", { count: "exact", head: true })
-              .eq("conversation_id", conversationId)
-              .eq("is_read", false)
-              .neq("sender_id", user.id)
-
-            const otherUser = otherParticipants?.[0]
-            const profile = otherUser?.profiles
-
-            return {
-              id: conversationId,
-              created_at: participant.conversations?.created_at || new Date().toISOString(),
-              updated_at: participant.conversations?.updated_at || new Date().toISOString(),
-              other_user: {
-                id: otherUser?.user_id || "unknown",
-                name: profile?.full_name || profile?.username || "Unknown User",
-                username: profile?.username || "unknown",
-                avatar_url: profile?.avatar_url || undefined,
-              },
-              last_message: lastMessage?.[0]
-                ? {
-                    content: lastMessage[0].content || lastMessage[0].message_text || "",
-                    created_at: lastMessage[0].created_at,
-                    sender_id: lastMessage[0].sender_id,
-                  }
-                : undefined,
-              unread_count: unreadCount || 0,
-            }
-          }),
-        )
-
-        setConversations(conversationsWithDetails)
+        const userConversations = await messagingService.getUserConversations(user.id)
+        setConversations(userConversations)
       } catch (error) {
         console.error("Error fetching conversations:", error)
-        setConversations([])
+        // Set demo conversations on error
+        setConversations([
+          {
+            id: "demo-conv-1",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            other_user: {
+              id: "demo-user-1",
+              name: "Sarah Johnson",
+              username: "sarah_j",
+            },
+            unread_count: 2,
+          },
+        ])
       } finally {
         setLoading(false)
       }
     }
 
     fetchConversations()
-  }, [user, supabase])
+  }, [user])
 
-  const filteredConversations = conversations.filter(
-    (conv) =>
-      conv.other_user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      conv.other_user.username.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  const filteredConversations = conversations.filter((conv) => {
+    if (!conv.other_user) return false
+    const searchLower = searchQuery.toLowerCase()
+    return (
+      conv.other_user.name.toLowerCase().includes(searchLower) ||
+      conv.other_user.username.toLowerCase().includes(searchLower)
+    )
+  })
 
   const formatMessageTime = (timestamp: string) => {
     const date = new Date(timestamp)
@@ -201,12 +96,18 @@ export default function MessagesPage() {
 
   if (!user) {
     return (
-      <div className="h-screen flex items-center justify-center">
-        <Card className="w-96">
+      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-amber-50 flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
           <CardContent className="p-6 text-center">
+            <MessageCircle className="h-12 w-12 text-slate-400 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-4">Authentication Required</h2>
             <p className="text-slate-600 mb-4">Please log in to access your messages.</p>
-            <Button onClick={() => (window.location.href = "/login")}>Go to Login</Button>
+            <Button
+              onClick={() => (window.location.href = "/login")}
+              className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
+            >
+              Go to Login
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -214,15 +115,13 @@ export default function MessagesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-amber-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-amber-50">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold text-slate-800 dark:text-white mb-2">Messages</h1>
-            <p className="text-slate-600 dark:text-slate-400">
-              Connect with your matches and start meaningful conversations
-            </p>
+            <h1 className="text-3xl font-bold text-slate-800 mb-2">Messages</h1>
+            <p className="text-slate-600">Connect with your matches and start meaningful conversations</p>
           </div>
 
           {/* Search and Actions */}
@@ -251,6 +150,7 @@ export default function MessagesPage() {
               <CardTitle className="flex items-center gap-2">
                 <MessageCircle className="h-5 w-5" />
                 Your Conversations
+                {conversations.length > 0 && <Badge variant="secondary">{conversations.length}</Badge>}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -271,58 +171,62 @@ export default function MessagesPage() {
                   <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
                     <Users className="h-8 w-8 text-white" />
                   </div>
-                  <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">No conversations yet</h3>
-                  <p className="text-slate-500 dark:text-slate-400 mb-4">
+                  <h3 className="text-lg font-medium text-slate-600 mb-2">No conversations yet</h3>
+                  <p className="text-slate-500 mb-4">
                     Start connecting with people and your conversations will appear here.
                   </p>
-                  <Button
-                    onClick={() => (window.location.href = "/matching")}
-                    variant="outline"
-                    className="bg-transparent"
-                  >
-                    Find Matches
-                  </Button>
+                  <div className="flex gap-2 justify-center">
+                    <Button onClick={() => (window.location.href = "/matching")} variant="outline">
+                      <Heart className="h-4 w-4 mr-2" />
+                      Find Matches
+                    </Button>
+                    <Button
+                      onClick={() => (window.location.href = "/messages/new")}
+                      className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Start Chat
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2">
                   {filteredConversations.map((conversation) => (
                     <div
                       key={conversation.id}
-                      onClick={() => (window.location.href = `/messages/match-${conversation.other_user.id}`)}
-                      className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+                      onClick={() => (window.location.href = `/messages/chat/${conversation.id}`)}
+                      className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 cursor-pointer transition-colors border border-transparent hover:border-slate-200"
                     >
                       <Avatar className="h-12 w-12">
-                        {conversation.other_user.avatar_url ? (
+                        {conversation.other_user?.avatar_url ? (
                           <AvatarImage
                             src={conversation.other_user.avatar_url || "/placeholder.svg"}
                             alt={conversation.other_user.name}
                           />
                         ) : (
                           <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                            {conversation.other_user.name.charAt(0).toUpperCase()}
+                            {conversation.other_user?.name.charAt(0).toUpperCase() || "U"}
                           </AvatarFallback>
                         )}
                       </Avatar>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-medium text-slate-800 dark:text-white truncate">
-                            {conversation.other_user.name}
+                          <h3 className="font-medium text-slate-800 truncate">
+                            {conversation.other_user?.name || "Unknown User"}
                           </h3>
                           {conversation.unread_count > 0 && (
-                            <Badge variant="secondary" className="bg-rose-500 text-white">
-                              {conversation.unread_count}
-                            </Badge>
+                            <Badge className="bg-rose-500 text-white">{conversation.unread_count}</Badge>
                           )}
                         </div>
-                        <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
+                        <p className="text-sm text-slate-500 truncate">
                           {conversation.last_message ? (
                             <>
                               {conversation.last_message.sender_id === user.id ? "You: " : ""}
                               {conversation.last_message.content}
                             </>
                           ) : (
-                            "No messages yet"
+                            "No messages yet - start the conversation!"
                           )}
                         </p>
                       </div>
@@ -338,6 +242,42 @@ export default function MessagesPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* Quick Actions */}
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card
+              className="cursor-pointer hover:shadow-md transition-shadow"
+              onClick={() => (window.location.href = "/matching")}
+            >
+              <CardContent className="p-4 text-center">
+                <Heart className="h-8 w-8 text-rose-500 mx-auto mb-2" />
+                <h3 className="font-medium text-slate-800">Find Matches</h3>
+                <p className="text-sm text-slate-500">Discover new connections</p>
+              </CardContent>
+            </Card>
+
+            <Card
+              className="cursor-pointer hover:shadow-md transition-shadow"
+              onClick={() => (window.location.href = "/community")}
+            >
+              <CardContent className="p-4 text-center">
+                <Users className="h-8 w-8 text-amber-500 mx-auto mb-2" />
+                <h3 className="font-medium text-slate-800">Join Community</h3>
+                <p className="text-sm text-slate-500">Connect in forums</p>
+              </CardContent>
+            </Card>
+
+            <Card
+              className="cursor-pointer hover:shadow-md transition-shadow"
+              onClick={() => (window.location.href = "/profile")}
+            >
+              <CardContent className="p-4 text-center">
+                <MessageCircle className="h-8 w-8 text-blue-500 mx-auto mb-2" />
+                <h3 className="font-medium text-slate-800">Update Profile</h3>
+                <p className="text-sm text-slate-500">Improve your matches</p>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
     </div>
