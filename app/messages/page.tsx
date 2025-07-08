@@ -3,14 +3,14 @@
 import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { MessageThread } from "@/components/messaging/message-thread"
-import { ConversationsList } from "@/components/messaging/conversations-list"
 import { IncomingCallModal } from "@/components/messaging/incoming-call-modal"
 import { VideoCallInterface } from "@/components/messaging/video-call-interface"
 import { MessageCircle } from "lucide-react"
 import { useAuth } from "@/components/auth/auth-provider"
 import { webRTCService, type CallData } from "@/lib/webrtc-service"
 import { messagingService } from "@/lib/messaging-service"
+import { SimpleMessageThread } from "@/components/messaging/simple-message-thread"
+import { SimpleConversationList } from "@/components/messaging/simple-conversation-list"
 
 export default function MessagesPage() {
   const searchParams = useSearchParams()
@@ -266,22 +266,35 @@ export default function MessagesPage() {
     )
   }
 
+  if (!user) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <MessageCircle className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600 mb-4" />
+            <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">Please log in</h3>
+            <p className="text-slate-500 dark:text-slate-400">You need to be logged in to access messages</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout>
       <div className="h-[calc(100vh-120px)] flex bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
         {/* Left Sidebar */}
         <div className="w-full md:w-96 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-          <ConversationsList
+          <SimpleConversationList
             onSelectConversation={handleSelectConversation}
             selectedConversationId={selectedConversationId}
-            onStartCall={handleStartCall}
           />
         </div>
 
         {/* Right Side - Message Thread or Empty State */}
         <div className="hidden md:flex flex-1">
           {selectedConversationId ? (
-            <MessageThread conversationId={selectedConversationId} onStartCall={handleStartCall} />
+            <SimpleMessageThread conversationId={selectedConversationId} />
           ) : (
             <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900">
               <div className="text-center max-w-md">
@@ -290,7 +303,7 @@ export default function MessagesPage() {
                 </div>
                 <h2 className="text-2xl font-bold mb-3 text-slate-700 dark:text-slate-300">Select a conversation</h2>
                 <p className="text-slate-500 dark:text-slate-400">
-                  Choose a conversation from the list to start messaging, calling, or video chatting
+                  Choose a conversation from the list to start messaging
                 </p>
               </div>
             </div>
