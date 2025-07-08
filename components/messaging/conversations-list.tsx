@@ -7,16 +7,21 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { Search, MessageCircle, Plus, Users } from "lucide-react"
+import { Search, MessageCircle, Plus, Users, Phone, Video } from "lucide-react"
 import { messagingService, type Conversation } from "@/lib/messaging-service"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface ConversationsListProps {
   onSelectConversation: (conversationId: string) => void
   selectedConversationId?: string
+  onStartCall?: (userId: string, callType: "audio" | "video") => void
 }
 
-export function ConversationsList({ onSelectConversation, selectedConversationId }: ConversationsListProps) {
+export function ConversationsList({
+  onSelectConversation,
+  selectedConversationId,
+  onStartCall,
+}: ConversationsListProps) {
   const { user } = useAuth()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,6 +51,10 @@ export function ConversationsList({ onSelectConversation, selectedConversationId
     }
 
     fetchConversations()
+
+    // Refresh conversations every 30 seconds
+    const interval = setInterval(fetchConversations, 30000)
+    return () => clearInterval(interval)
   }, [user])
 
   const createTestConversation = async () => {
@@ -90,6 +99,8 @@ export function ConversationsList({ onSelectConversation, selectedConversationId
   }
 
   const filteredConversations = conversations.filter((conversation) => {
+    if (!searchQuery) return true
+
     const otherParticipant = getOtherParticipant(conversation)
     if (!otherParticipant?.profile) return false
 
@@ -230,6 +241,34 @@ export function ConversationsList({ onSelectConversation, selectedConversationId
                       </div>
 
                       <div className="flex flex-col items-end space-y-1">
+                        <div className="flex space-x-1">
+                          {onStartCall && otherParticipant && (
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 w-8 p-0 bg-transparent"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onStartCall(otherParticipant.user_id, "audio")
+                                }}
+                              >
+                                <Phone className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 w-8 p-0 bg-transparent"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  onStartCall(otherParticipant.user_id, "video")
+                                }}
+                              >
+                                <Video className="h-3 w-3" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
                         <Badge variant="outline" className="text-xs">
                           <Users className="h-3 w-3 mr-1" />
                           {conversation.participants.length}

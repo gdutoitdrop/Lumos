@@ -4,6 +4,7 @@ export interface Conversation {
   id: string
   created_at: string
   updated_at: string
+  conversation_type: "direct" | "group"
   participants: ConversationParticipant[]
   last_message?: Message
 }
@@ -13,11 +14,13 @@ export interface ConversationParticipant {
   conversation_id: string
   user_id: string
   joined_at: string
+  is_active: boolean
   profile?: {
     id: string
     username: string
     full_name: string
-    avatar_url: string
+    avatar_url?: string
+    bio?: string
   }
 }
 
@@ -26,19 +29,35 @@ export interface Message {
   conversation_id: string
   sender_id: string
   content: string
+  message_type: "text" | "image" | "file" | "call_start" | "call_end"
   created_at: string
+  updated_at: string
   read_by: string[]
+  metadata: Record<string, any>
   sender_profile?: {
     id: string
     username: string
     full_name: string
-    avatar_url: string
+    avatar_url?: string
   }
+}
+
+export interface CallSignal {
+  id: string
+  call_id: string
+  signal_type: "offer" | "answer" | "ice-candidate" | "call-start" | "call-end" | "call-accept" | "call-reject"
+  from_user_id: string
+  to_user_id: string
+  call_type: "audio" | "video"
+  signal_data?: any
+  created_at: string
+  expires_at: string
 }
 
 export class MessagingService {
   private supabase = createClient()
 
+  // Conversation Management
   async getUserConversations(userId: string): Promise<Conversation[]> {
     try {
       console.log("Fetching conversations for user:", userId)
@@ -48,13 +67,12 @@ export class MessagingService {
         .from("conversation_participants")
         .select("conversation_id")
         .eq("user_id", userId)
+        .eq("is_active", true)
 
       if (participantError) {
         console.error("Error fetching participant data:", participantError)
         throw participantError
       }
-
-      console.log("Participant data:", participantData)
 
       const conversationIds = participantData.map((p) => p.conversation_id)
 
@@ -75,8 +93,6 @@ export class MessagingService {
         throw conversationsError
       }
 
-      console.log("Conversations:", conversations)
-
       // Get all participants for these conversations
       const { data: allParticipants, error: allParticipantsError } = await this.supabase
         .from("conversation_participants")
@@ -86,17 +102,17 @@ export class MessagingService {
             id,
             username,
             full_name,
-            avatar_url
+            avatar_url,
+            bio
           )
         `)
         .in("conversation_id", conversationIds)
+        .eq("is_active", true)
 
       if (allParticipantsError) {
         console.error("Error fetching participants:", allParticipantsError)
         throw allParticipantsError
       }
-
-      console.log("All participants:", allParticipants)
 
       // Get last message for each conversation
       const { data: lastMessages, error: lastMessagesError } = await this.supabase
@@ -115,10 +131,7 @@ export class MessagingService {
 
       if (lastMessagesError) {
         console.error("Error fetching last messages:", lastMessagesError)
-        // Don't throw here, just continue without last messages
       }
-
-      console.log("Last messages:", lastMessages)
 
       // Combine data
       const result: Conversation[] = conversations.map((conv) => {
@@ -143,7 +156,7 @@ export class MessagingService {
         }
       })
 
-      console.log("Final result:", result)
+      console.log("Fetched conversations:", result)
       return result
     } catch (error) {
       console.error("Error fetching conversations:", error)
@@ -165,7 +178,9 @@ export class MessagingService {
       // Create new conversation
       const { data: conversation, error: conversationError } = await this.supabase
         .from("conversations")
-        .insert({})
+        .insert({
+          conversation_type: "direct",
+        })
         .select()
         .single()
 
@@ -174,12 +189,10 @@ export class MessagingService {
         throw conversationError
       }
 
-      console.log("Created conversation:", conversation)
-
       // Add participants
       const { error: participantsError } = await this.supabase.from("conversation_participants").insert([
-        { conversation_id: conversation.id, user_id: currentUserId },
-        { conversation_id: conversation.id, user_id: otherUserId },
+        { conversation_id: conversation.id, user_id: currentUserId, is_active: true },
+        { conversation_id: conversation.id, user_id: otherUserId, is_active: true },
       ])
 
       if (participantsError) {
@@ -187,7 +200,7 @@ export class MessagingService {
         throw participantsError
       }
 
-      console.log("Added participants to conversation")
+      console.log("Created conversation:", conversation.id)
       return conversation.id
     } catch (error) {
       console.error("Error creating conversation:", error)
@@ -197,63 +210,50 @@ export class MessagingService {
 
   async findExistingConversation(user1Id: string, user2Id: string): Promise<Conversation | null> {
     try {
-      console.log("Looking for existing conversation between:", user1Id, "and", user2Id)
-
-      // Get conversations where user1 is a participant
-      const { data: user1Conversations, error: user1Error } = await this.supabase
+      // Get conversations where both users are participants
+      const { data: conversations, error } = await this.supabase
         .from("conversation_participants")
-        .select("conversation_id")
+        .select(`
+          conversation_id,
+          conversations!inner (
+            id,
+            conversation_type,
+            created_at,
+            updated_at
+          )
+        `)
         .eq("user_id", user1Id)
+        .eq("is_active", true)
 
-      if (user1Error) {
-        console.error("Error fetching user1 conversations:", user1Error)
-        throw user1Error
-      }
+      if (error) throw error
 
-      // Get conversations where user2 is a participant
-      const { data: user2Conversations, error: user2Error } = await this.supabase
-        .from("conversation_participants")
-        .select("conversation_id")
-        .eq("user_id", user2Id)
-
-      if (user2Error) {
-        console.error("Error fetching user2 conversations:", user2Error)
-        throw user2Error
-      }
-
-      // Find common conversations
-      const user1ConvIds = user1Conversations.map((c) => c.conversation_id)
-      const user2ConvIds = user2Conversations.map((c) => c.conversation_id)
-      const commonConvIds = user1ConvIds.filter((id) => user2ConvIds.includes(id))
-
-      console.log("Common conversation IDs:", commonConvIds)
-
-      if (commonConvIds.length === 0) return null
-
-      // For each common conversation, check if it has exactly 2 participants (direct message)
-      for (const convId of commonConvIds) {
-        const { data: participants, error: participantsError } = await this.supabase
+      // Check each conversation to see if user2 is also a participant
+      for (const conv of conversations) {
+        const { data: otherParticipant, error: otherError } = await this.supabase
           .from("conversation_participants")
-          .select("user_id")
-          .eq("conversation_id", convId)
+          .select("id")
+          .eq("conversation_id", conv.conversation_id)
+          .eq("user_id", user2Id)
+          .eq("is_active", true)
+          .single()
 
-        if (participantsError) continue
+        if (!otherError && otherParticipant) {
+          // Check if it's a direct conversation (only 2 participants)
+          const { data: allParticipants, error: countError } = await this.supabase
+            .from("conversation_participants")
+            .select("id")
+            .eq("conversation_id", conv.conversation_id)
+            .eq("is_active", true)
 
-        if (participants.length === 2) {
-          // This is a direct message conversation
-          const { data: conversation, error: conversationError } = await this.supabase
-            .from("conversations")
-            .select("*")
-            .eq("id", convId)
-            .single()
-
-          if (conversationError) continue
-
-          console.log("Found existing direct conversation:", conversation)
-          return {
-            ...conversation,
-            participants: [],
-            last_message: undefined,
+          if (!countError && allParticipants.length === 2) {
+            return {
+              id: conv.conversations.id,
+              conversation_type: conv.conversations.conversation_type,
+              created_at: conv.conversations.created_at,
+              updated_at: conv.conversations.updated_at,
+              participants: [],
+              last_message: undefined,
+            }
           }
         }
       }
@@ -265,6 +265,7 @@ export class MessagingService {
     }
   }
 
+  // Message Management
   async getConversationMessages(conversationId: string): Promise<Message[]> {
     try {
       console.log("Fetching messages for conversation:", conversationId)
@@ -288,21 +289,28 @@ export class MessagingService {
         throw error
       }
 
-      console.log("Fetched messages:", messages)
-
-      return messages.map((message) => ({
+      const result = messages.map((message) => ({
         ...message,
         sender_profile: message.profiles,
       }))
+
+      console.log("Fetched messages:", result)
+      return result
     } catch (error) {
       console.error("Error fetching messages:", error)
       throw error
     }
   }
 
-  async sendMessage(conversationId: string, senderId: string, content: string): Promise<Message> {
+  async sendMessage(
+    conversationId: string,
+    senderId: string,
+    content: string,
+    messageType: "text" | "image" | "file" | "call_start" | "call_end" = "text",
+    metadata: Record<string, any> = {},
+  ): Promise<Message> {
     try {
-      console.log("Sending message:", { conversationId, senderId, content })
+      console.log("Sending message:", { conversationId, senderId, content, messageType })
 
       const { data: message, error } = await this.supabase
         .from("messages")
@@ -310,7 +318,9 @@ export class MessagingService {
           conversation_id: conversationId,
           sender_id: senderId,
           content: content.trim(),
+          message_type: messageType,
           read_by: [senderId],
+          metadata,
         })
         .select(`
           *,
@@ -328,12 +338,13 @@ export class MessagingService {
         throw error
       }
 
-      console.log("Message sent successfully:", message)
-
-      return {
+      const result = {
         ...message,
         sender_profile: message.profiles,
       }
+
+      console.log("Message sent successfully:", result)
+      return result
     } catch (error) {
       console.error("Error sending message:", error)
       throw error
@@ -342,8 +353,6 @@ export class MessagingService {
 
   async markMessageAsRead(messageId: string, userId: string): Promise<void> {
     try {
-      console.log("Marking message as read:", { messageId, userId })
-
       // Get current read_by array
       const { data: message, error: fetchError } = await this.supabase
         .from("messages")
@@ -351,10 +360,7 @@ export class MessagingService {
         .eq("id", messageId)
         .single()
 
-      if (fetchError) {
-        console.error("Error fetching message for read status:", fetchError)
-        throw fetchError
-      }
+      if (fetchError) throw fetchError
 
       const currentReadBy = message.read_by || []
       if (!currentReadBy.includes(userId)) {
@@ -365,12 +371,7 @@ export class MessagingService {
           .update({ read_by: newReadBy })
           .eq("id", messageId)
 
-        if (updateError) {
-          console.error("Error updating read status:", updateError)
-          throw updateError
-        }
-
-        console.log("Message marked as read")
+        if (updateError) throw updateError
       }
     } catch (error) {
       console.error("Error marking message as read:", error)
@@ -378,6 +379,7 @@ export class MessagingService {
     }
   }
 
+  // Real-time subscriptions
   subscribeToConversation(conversationId: string, onMessage: (message: Message) => void) {
     console.log("Subscribing to conversation:", conversationId)
 
@@ -410,19 +412,72 @@ export class MessagingService {
             .single()
 
           if (!error && message) {
-            console.log("Fetched complete message:", message)
             onMessage({
               ...message,
               sender_profile: message.profiles,
             })
-          } else {
-            console.error("Error fetching complete message:", error)
           }
         },
       )
-      .subscribe((status) => {
-        console.log("Subscription status:", status)
+      .subscribe()
+  }
+
+  // Call Management
+  async sendCallSignal(signal: Omit<CallSignal, "id" | "created_at" | "expires_at">): Promise<void> {
+    try {
+      console.log("Sending call signal:", signal)
+
+      const { error } = await this.supabase.from("call_signals").insert({
+        call_id: signal.call_id,
+        signal_type: signal.signal_type,
+        from_user_id: signal.from_user_id,
+        to_user_id: signal.to_user_id,
+        call_type: signal.call_type,
+        signal_data: signal.signal_data,
       })
+
+      if (error) {
+        console.error("Error sending call signal:", error)
+        throw error
+      }
+
+      console.log("Call signal sent successfully")
+    } catch (error) {
+      console.error("Error sending call signal:", error)
+      throw error
+    }
+  }
+
+  subscribeToCallSignals(userId: string, onSignal: (signal: CallSignal) => void) {
+    console.log("Subscribing to call signals for user:", userId)
+
+    return this.supabase
+      .channel(`call-signals-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "call_signals",
+          filter: `to_user_id=eq.${userId}`,
+        },
+        (payload) => {
+          console.log("Received call signal:", payload.new)
+          onSignal(payload.new as CallSignal)
+        },
+      )
+      .subscribe()
+  }
+
+  async cleanupExpiredCallSignals(): Promise<void> {
+    try {
+      const { error } = await this.supabase.rpc("cleanup_expired_call_signals")
+      if (error) {
+        console.error("Error cleaning up expired call signals:", error)
+      }
+    } catch (error) {
+      console.error("Error cleaning up expired call signals:", error)
+    }
   }
 }
 

@@ -7,15 +7,16 @@ import { useAuth } from "@/components/auth/auth-provider"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Send, Phone, Video, MoreVertical } from "lucide-react"
+import { Send, Phone, Video, MoreVertical, PhoneCall } from "lucide-react"
 import { messagingService, type Message, type Conversation } from "@/lib/messaging-service"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
 interface MessageThreadProps {
   conversationId: string
+  onStartCall?: (userId: string, callType: "audio" | "video") => void
 }
 
-export function MessageThread({ conversationId }: MessageThreadProps) {
+export function MessageThread({ conversationId, onStartCall }: MessageThreadProps) {
   const { user } = useAuth()
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState("")
@@ -141,6 +142,58 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
     return conversation.participants.find((p) => p.user_id !== user?.id)
   }
 
+  const renderMessage = (message: Message) => {
+    const isCurrentUser = message.sender_id === user?.id
+
+    if (message.message_type === "call_start" || message.message_type === "call_end") {
+      return (
+        <div key={message.id} className="flex justify-center">
+          <div className="bg-slate-100 dark:bg-slate-700 rounded-full px-4 py-2 text-sm text-slate-600 dark:text-slate-300 flex items-center">
+            <PhoneCall className="h-4 w-4 mr-2" />
+            {message.content}
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div key={message.id} className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
+        <div className={`flex ${isCurrentUser ? "flex-row-reverse" : "flex-row"} items-end gap-3 max-w-[80%]`}>
+          <Avatar className="h-8 w-8 flex-shrink-0">
+            <AvatarImage
+              src={message.sender_profile?.avatar_url || "/placeholder.svg"}
+              alt={message.sender_profile?.full_name || "User"}
+            />
+            <AvatarFallback
+              className={
+                isCurrentUser
+                  ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white"
+                  : "bg-slate-200 dark:bg-slate-700"
+              }
+            >
+              {isCurrentUser
+                ? user?.user_metadata?.full_name?.charAt(0) || "Y"
+                : message.sender_profile?.full_name?.charAt(0) || "U"}
+            </AvatarFallback>
+          </Avatar>
+
+          <div
+            className={`rounded-2xl px-4 py-3 ${
+              isCurrentUser
+                ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white rounded-br-md"
+                : "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-md"
+            }`}
+          >
+            <p className="text-sm leading-relaxed">{message.content}</p>
+            <p className={`text-xs mt-2 ${isCurrentUser ? "text-rose-100" : "text-slate-500 dark:text-slate-400"}`}>
+              {formatMessageTime(message.created_at)}
+            </p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const otherParticipant = getOtherParticipant()
 
   if (loading) {
@@ -195,12 +248,26 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
           </div>
 
           <div className="flex items-center space-x-2">
-            <Button variant="outline" size="icon">
-              <Phone className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="icon">
-              <Video className="h-4 w-4" />
-            </Button>
+            {onStartCall && otherParticipant && (
+              <>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => onStartCall(otherParticipant.user_id, "audio")}
+                  className="hover:bg-green-50 hover:border-green-300"
+                >
+                  <Phone className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => onStartCall(otherParticipant.user_id, "video")}
+                  className="hover:bg-blue-50 hover:border-blue-300"
+                >
+                  <Video className="h-4 w-4" />
+                </Button>
+              </>
+            )}
             <Button variant="outline" size="icon">
               <MoreVertical className="h-4 w-4" />
             </Button>
@@ -224,7 +291,9 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
                 <Send className="h-8 w-8 text-white" />
               </div>
               <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">Start the conversation!</h3>
-              <p className="text-slate-500 dark:text-slate-400">Send your first message to begin chatting.</p>
+              <p className="text-slate-500 dark:text-slate-400">
+                Send your first message or start a call to begin chatting.
+              </p>
             </div>
           </div>
         ) : (
@@ -238,52 +307,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
               </div>
 
               {/* Messages for this date */}
-              {group.messages.map((message) => {
-                const isCurrentUser = message.sender_id === user?.id
-
-                return (
-                  <div key={message.id} className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
-                    <div
-                      className={`flex ${isCurrentUser ? "flex-row-reverse" : "flex-row"} items-end gap-3 max-w-[80%]`}
-                    >
-                      <Avatar className="h-8 w-8 flex-shrink-0">
-                        <AvatarImage
-                          src={message.sender_profile?.avatar_url || "/placeholder.svg"}
-                          alt={message.sender_profile?.full_name || "User"}
-                        />
-                        <AvatarFallback
-                          className={
-                            isCurrentUser
-                              ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white"
-                              : "bg-slate-200 dark:bg-slate-700"
-                          }
-                        >
-                          {isCurrentUser
-                            ? user?.user_metadata?.full_name?.charAt(0) || "Y"
-                            : message.sender_profile?.full_name?.charAt(0) || "U"}
-                        </AvatarFallback>
-                      </Avatar>
-
-                      <div
-                        className={`rounded-2xl px-4 py-3 ${
-                          isCurrentUser
-                            ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white rounded-br-md"
-                            : "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-md"
-                        }`}
-                      >
-                        <p className="text-sm leading-relaxed">{message.content}</p>
-                        <p
-                          className={`text-xs mt-2 ${
-                            isCurrentUser ? "text-rose-100" : "text-slate-500 dark:text-slate-400"
-                          }`}
-                        >
-                          {formatMessageTime(message.created_at)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+              {group.messages.map(renderMessage)}
             </div>
           ))
         )}

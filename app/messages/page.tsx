@@ -4,87 +4,30 @@ import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { MessageThread } from "@/components/messaging/message-thread"
-import { MessageCircle } from "lucide-react"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Card, CardContent } from "@/components/ui/card"
-import { createClient } from "@/lib/supabase/client"
-import { useAuth } from "@/components/auth/auth-provider"
 import { ConversationsList } from "@/components/messaging/conversations-list"
+import { IncomingCallModal } from "@/components/messaging/incoming-call-modal"
+import { VideoCallInterface } from "@/components/messaging/video-call-interface"
+import { MessageCircle } from "lucide-react"
+import { useAuth } from "@/components/auth/auth-provider"
+import { webRTCService, type CallData } from "@/lib/webrtc-service"
+import { messagingService } from "@/lib/messaging-service"
 
 export default function MessagesPage() {
   const searchParams = useSearchParams()
-  const [searchQuery, setSearchQuery] = useState("")
-  const [conversations, setConversations] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [creating, setCreating] = useState(false)
   const { user } = useAuth()
-  const supabase = createClient()
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
 
-  // Sample matches for demo
-  const sampleMatches = [
-    {
-      id: "sample-1",
-      name: "Sarah Johnson",
-      username: "sarah_j",
-      bio: "Mental health advocate and yoga instructor.",
-      location: "San Francisco, CA",
-      avatar_url: null,
-      journey: "Anxiety Support",
-      matchScore: 92,
-      isOnline: true,
-    },
-    {
-      id: "sample-2",
-      name: "Alex Chen",
-      username: "alex_mindful",
-      bio: "Meditation practitioner and peer supporter.",
-      location: "Seattle, WA",
-      avatar_url: null,
-      journey: "Depression Recovery",
-      matchScore: 88,
-      isOnline: false,
-    },
-    {
-      id: "sample-3",
-      name: "Maya Patel",
-      username: "maya_wellness",
-      bio: "Therapist and wellness coach.",
-      location: "Austin, TX",
-      avatar_url: null,
-      journey: "Professional Support",
-      matchScore: 95,
-      isOnline: true,
-    },
-  ]
-
-  useEffect(() => {
-    const fetchConversations = async () => {
-      if (!user) {
-        setLoading(false)
-        return
-      }
-
-      try {
-        const { data: conversationsData } = await supabase
-          .from("user_conversations")
-          .select("*")
-          .or(`participant_1.eq.${user.id},participant_2.eq.${user.id}`)
-          .order("updated_at", { ascending: false })
-
-        setConversations(conversationsData || [])
-      } catch (error) {
-        console.error("Error fetching conversations:", error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchConversations()
-  }, [user, supabase])
+  // Call state
+  const [incomingCall, setIncomingCall] = useState<CallData | null>(null)
+  const [currentCall, setCurrentCall] = useState<CallData | null>(null)
+  const [isInCall, setIsInCall] = useState(false)
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null)
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true)
+  const [isAudioEnabled, setIsAudioEnabled] = useState(true)
+  const [callDuration, setCallDuration] = useState("00:00")
+  const [callStartTime, setCallStartTime] = useState<Date | null>(null)
+  const [callerInfo, setCallerInfo] = useState<{ name: string; username: string; avatar_url?: string } | null>(null)
 
   useEffect(() => {
     // Check if there's a conversation ID in the URL
@@ -94,61 +37,95 @@ export default function MessagesPage() {
     }
   }, [searchParams])
 
-  const filteredMatches = sampleMatches.filter(
-    (match) =>
-      match.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      match.username.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
-
-  const createTestConversation = async () => {
+  useEffect(() => {
     if (!user) return
 
-    setCreating(true)
-
-    try {
-      const { data: conversation, error } = await supabase
-        .from("user_conversations")
-        .insert({
-          participant_1: user.id,
-          participant_2: "22222222-2222-2222-2222-222222222222",
-        })
-        .select()
-        .single()
-
-      if (!error && conversation) {
-        window.location.href = `/messages/chat/${conversation.id}`
-      }
-    } catch (error) {
-      console.error("Error creating conversation:", error)
-    } finally {
-      setCreating(false)
+    // Set up WebRTC callbacks
+    webRTCService.onRemoteStream = (stream) => {
+      console.log("Received remote stream")
+      setRemoteStream(stream)
     }
-  }
 
-  const startChat = async (matchId: string) => {
-    if (!user) return
-
-    setCreating(true)
-
-    try {
-      const { data: conversation, error } = await supabase
-        .from("user_conversations")
-        .insert({
-          participant_1: user.id,
-          participant_2: matchId.startsWith("sample-") ? "22222222-2222-2222-2222-222222222222" : matchId,
-        })
-        .select()
-        .single()
-
-      if (!error && conversation) {
-        window.location.href = `/messages/chat/${conversation.id}`
-      }
-    } catch (error) {
-      console.error("Error starting chat:", error)
-    } finally {
-      setCreating(false)
+    webRTCService.onCallEnd = () => {
+      console.log("Call ended")
+      handleEndCall()
     }
-  }
+
+    // Subscribe to call signals
+    webRTCService.subscribeToSignals(user.id, async (callData) => {
+      console.log("Received call signal:", callData)
+
+      switch (callData.signalType) {
+        case "call-start":
+          // Incoming call
+          const { data: profile } = await messagingService.supabase
+            .from("profiles")
+            .select("username, full_name, avatar_url")
+            .eq("id", callData.fromUserId)
+            .single()
+
+          if (profile) {
+            setCallerInfo({
+              name: profile.full_name || profile.username || "Unknown User",
+              username: profile.username || "unknown",
+              avatar_url: profile.avatar_url,
+            })
+          }
+
+          setIncomingCall(callData)
+          break
+
+        case "call-accept":
+          // Call was accepted
+          console.log("Call accepted")
+          await webRTCService.createOffer()
+          break
+
+        case "call-reject":
+          // Call was rejected
+          console.log("Call rejected")
+          setCurrentCall(null)
+          setIncomingCall(null)
+          break
+
+        case "offer":
+          await webRTCService.handleOffer(callData)
+          break
+
+        case "answer":
+          await webRTCService.handleAnswer(callData)
+          break
+
+        case "ice-candidate":
+          await webRTCService.handleIceCandidate(callData)
+          break
+
+        case "call-end":
+          handleEndCall()
+          break
+      }
+    })
+
+    return () => {
+      // Cleanup
+      webRTCService.endCall()
+    }
+  }, [user])
+
+  // Update call duration
+  useEffect(() => {
+    if (!callStartTime) return
+
+    const interval = setInterval(() => {
+      const now = new Date()
+      const diff = now.getTime() - callStartTime.getTime()
+      const minutes = Math.floor(diff / 60000)
+      const seconds = Math.floor((diff % 60000) / 1000)
+      setCallDuration(`${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`)
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [callStartTime])
 
   const handleSelectConversation = (conversationId: string) => {
     setSelectedConversationId(conversationId)
@@ -158,16 +135,134 @@ export default function MessagesPage() {
     window.history.pushState({}, "", url.toString())
   }
 
-  if (loading) {
+  const handleStartCall = async (toUserId: string, callType: "audio" | "video") => {
+    if (!user) return
+
+    try {
+      console.log("Starting call to:", toUserId, "type:", callType)
+
+      const callId = await webRTCService.startCall(user.id, toUserId, callType)
+
+      setCurrentCall({
+        callId,
+        fromUserId: user.id,
+        toUserId,
+        callType,
+        signalType: "call-start",
+      })
+
+      setIsInCall(true)
+      setCallStartTime(new Date())
+      setLocalStream(webRTCService.getLocalStream())
+      setIsVideoEnabled(callType === "video")
+      setIsAudioEnabled(true)
+
+      // Send call start message to conversation
+      const conversations = await messagingService.getUserConversations(user.id)
+      const conversation = conversations.find((c) => c.participants.some((p) => p.user_id === toUserId))
+
+      if (conversation) {
+        await messagingService.sendMessage(conversation.id, user.id, `Started a ${callType} call`, "call_start")
+      }
+    } catch (error) {
+      console.error("Error starting call:", error)
+    }
+  }
+
+  const handleAcceptCall = async () => {
+    if (!incomingCall || !user) return
+
+    try {
+      console.log("Accepting call")
+
+      await webRTCService.acceptCall(incomingCall)
+
+      setCurrentCall(incomingCall)
+      setIsInCall(true)
+      setCallStartTime(new Date())
+      setLocalStream(webRTCService.getLocalStream())
+      setIsVideoEnabled(incomingCall.callType === "video")
+      setIsAudioEnabled(true)
+      setIncomingCall(null)
+    } catch (error) {
+      console.error("Error accepting call:", error)
+    }
+  }
+
+  const handleRejectCall = async () => {
+    if (!incomingCall) return
+
+    try {
+      console.log("Rejecting call")
+      await webRTCService.rejectCall(incomingCall)
+      setIncomingCall(null)
+      setCallerInfo(null)
+    } catch (error) {
+      console.error("Error rejecting call:", error)
+    }
+  }
+
+  const handleEndCall = async () => {
+    try {
+      console.log("Ending call")
+
+      if (currentCall && user) {
+        // Send call end message to conversation
+        const conversations = await messagingService.getUserConversations(user.id)
+        const conversation = conversations.find((c) =>
+          c.participants.some((p) => p.user_id === currentCall.toUserId || p.user_id === currentCall.fromUserId),
+        )
+
+        if (conversation) {
+          await messagingService.sendMessage(
+            conversation.id,
+            user.id,
+            `Call ended • Duration: ${callDuration}`,
+            "call_end",
+          )
+        }
+      }
+
+      await webRTCService.endCall()
+
+      setCurrentCall(null)
+      setIsInCall(false)
+      setLocalStream(null)
+      setRemoteStream(null)
+      setCallStartTime(null)
+      setCallDuration("00:00")
+      setIncomingCall(null)
+      setCallerInfo(null)
+    } catch (error) {
+      console.error("Error ending call:", error)
+    }
+  }
+
+  const handleToggleVideo = () => {
+    const enabled = webRTCService.toggleVideo()
+    setIsVideoEnabled(enabled)
+  }
+
+  const handleToggleAudio = () => {
+    const enabled = webRTCService.toggleAudio()
+    setIsAudioEnabled(enabled)
+  }
+
+  // If in call, show video interface
+  if (isInCall && currentCall && callerInfo) {
     return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
-            <p className="text-slate-500 dark:text-slate-400">Loading...</p>
-          </div>
-        </div>
-      </DashboardLayout>
+      <VideoCallInterface
+        localStream={localStream}
+        remoteStream={remoteStream}
+        isVideoEnabled={isVideoEnabled}
+        isAudioEnabled={isAudioEnabled}
+        isVideoCall={currentCall.callType === "video"}
+        onToggleVideo={handleToggleVideo}
+        onToggleAudio={handleToggleAudio}
+        onEndCall={handleEndCall}
+        participantInfo={callerInfo}
+        callDuration={callDuration}
+      />
     )
   }
 
@@ -176,129 +271,17 @@ export default function MessagesPage() {
       <div className="h-[calc(100vh-120px)] flex bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
         {/* Left Sidebar */}
         <div className="w-full md:w-96 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-          <div className="h-full flex flex-col">
-            {/* Header */}
-            <div className="p-6 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-rose-50 to-amber-50 dark:from-slate-800 dark:to-slate-700">
-              <div className="flex items-center justify-between mb-4">
-                <h1 className="text-2xl font-bold text-slate-800 dark:text-white">Messages</h1>
-                <Button
-                  size="sm"
-                  onClick={createTestConversation}
-                  disabled={creating}
-                  className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white shadow-md"
-                >
-                  {/* Plus Icon */}
-                  {creating ? "Creating..." : "New Chat"}
-                </Button>
-              </div>
-              <div className="relative">
-                <MessageCircle className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
-                <Input
-                  placeholder="Search matches..."
-                  className="pl-10 bg-white dark:bg-slate-700 border-slate-300 dark:border-slate-600"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto">
-              {/* Matches Section */}
-              <div className="p-4 border-b border-slate-200 dark:border-slate-700">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-white mb-4 flex items-center">
-                  {/* Heart Icon */}
-                  Your Matches ({filteredMatches.length})
-                </h2>
-                <div className="space-y-3">
-                  {filteredMatches.map((match) => (
-                    <Card
-                      key={match.id}
-                      className="hover:shadow-md transition-all duration-200 border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-center space-x-3">
-                          <Avatar className="h-12 w-12">
-                            <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white text-lg font-semibold">
-                              {match.name.charAt(0)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-1">
-                              <h3 className="text-sm font-semibold text-slate-800 dark:text-white truncate">
-                                {match.name}
-                              </h3>
-                              <Badge variant="secondary" className="text-xs">
-                                {match.matchScore}% Match
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-slate-600 dark:text-slate-300 mb-1">
-                              @{match.username} • {match.location}
-                            </p>
-                            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">{match.bio}</p>
-                          </div>
-                        </div>
-                        <div className="flex gap-2 mt-3">
-                          <Button
-                            size="sm"
-                            onClick={() => startChat(match.id)}
-                            disabled={creating}
-                            className="flex-1 bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white text-xs"
-                          >
-                            {/* MessageCircle Icon */}
-                            {creating ? "Starting..." : "Message"}
-                          </Button>
-                          <Button size="sm" variant="outline" className="text-xs bg-transparent">
-                            {/* User Icon */}
-                            Profile
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-
-              {/* Conversations Section */}
-              <div className="p-4">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-white mb-4 flex items-center">
-                  {/* MessageCircle Icon */}
-                  Recent Conversations ({conversations.length})
-                </h2>
-                {conversations.length === 0 ? (
-                  <div className="text-center py-8">
-                    {/* MessageCircle Icon */}
-                    <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">
-                      No conversations yet
-                    </h3>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                      Start messaging your matches to begin conversations
-                    </p>
-                    <Button
-                      onClick={createTestConversation}
-                      disabled={creating}
-                      className="bg-gradient-to-r from-rose-500 to-amber-500 text-white"
-                    >
-                      {/* Plus Icon */}
-                      {creating ? "Creating..." : "Start New Chat"}
-                    </Button>
-                  </div>
-                ) : (
-                  <ConversationsList
-                    conversations={conversations}
-                    onSelectConversation={handleSelectConversation}
-                    selectedConversationId={selectedConversationId}
-                  />
-                )}
-              </div>
-            </div>
-          </div>
+          <ConversationsList
+            onSelectConversation={handleSelectConversation}
+            selectedConversationId={selectedConversationId}
+            onStartCall={handleStartCall}
+          />
         </div>
 
         {/* Right Side - Message Thread or Empty State */}
         <div className="hidden md:flex flex-1">
           {selectedConversationId ? (
-            <MessageThread conversationId={selectedConversationId} />
+            <MessageThread conversationId={selectedConversationId} onStartCall={handleStartCall} />
           ) : (
             <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900">
               <div className="text-center max-w-md">
@@ -307,13 +290,23 @@ export default function MessagesPage() {
                 </div>
                 <h2 className="text-2xl font-bold mb-3 text-slate-700 dark:text-slate-300">Select a conversation</h2>
                 <p className="text-slate-500 dark:text-slate-400">
-                  Choose a conversation from the list to start messaging, or create a new test conversation
+                  Choose a conversation from the list to start messaging, calling, or video chatting
                 </p>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Incoming Call Modal */}
+      {incomingCall && callerInfo && (
+        <IncomingCallModal
+          callData={incomingCall}
+          callerInfo={callerInfo}
+          onAccept={handleAcceptCall}
+          onReject={handleRejectCall}
+        />
+      )}
     </DashboardLayout>
   )
 }
