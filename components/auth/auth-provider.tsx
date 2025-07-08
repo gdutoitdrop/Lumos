@@ -24,6 +24,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
 
   useEffect(() => {
+    let mounted = true
+
     const getSession = async () => {
       try {
         const {
@@ -35,12 +37,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error("Error getting session:", error)
         }
 
-        setSession(session)
-        setUser(session?.user ?? null)
+        if (mounted) {
+          setSession(session)
+          setUser(session?.user ?? null)
+          setIsLoading(false)
+        }
       } catch (error) {
         console.error("Error in getSession:", error)
-      } finally {
-        setIsLoading(false)
+        if (mounted) {
+          setIsLoading(false)
+        }
       }
     }
 
@@ -48,20 +54,49 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      setIsLoading(false)
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state changed:", event, session?.user?.id)
+
+      if (mounted) {
+        setSession(session)
+        setUser(session?.user ?? null)
+        setIsLoading(false)
+      }
+
+      if (event === "SIGNED_IN" && session) {
+        // Ensure user profile exists
+        try {
+          const { data: profile, error } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", session.user.id)
+            .single()
+
+          if (error && error.code === "PGRST116") {
+            // Profile doesn't exist, create it
+            await supabase.from("profiles").insert({
+              id: session.user.id,
+              username: session.user.email,
+              full_name: session.user.user_metadata?.full_name || session.user.email,
+            })
+          }
+        } catch (error) {
+          console.error("Error handling profile:", error)
+        }
+      }
+
+      // Only refresh router if not loading
+      if (!mounted) return
       router.refresh()
     })
 
     return () => {
+      mounted = false
       subscription.unsubscribe()
     }
   }, [router, supabase])
 
   const signOut = async () => {
-    setIsLoading(true)
     try {
       const { error } = await supabase.auth.signOut()
       if (error) {
@@ -71,13 +106,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("Error signing out:", error)
       throw error
-    } finally {
-      setIsLoading(false)
     }
   }
 
   const resetPassword = async (email: string) => {
-    setIsLoading(true)
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/reset-password`,
@@ -88,8 +120,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("Error resetting password:", error)
       throw error
-    } finally {
-      setIsLoading(false)
     }
   }
 

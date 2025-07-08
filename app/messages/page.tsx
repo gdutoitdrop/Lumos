@@ -14,7 +14,7 @@ import { SimpleConversationList } from "@/components/messaging/simple-conversati
 
 export default function MessagesPage() {
   const searchParams = useSearchParams()
-  const { user } = useAuth()
+  const { user, isLoading } = useAuth()
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
 
   // Call state
@@ -263,6 +263,19 @@ export default function MessagesPage() {
         participantInfo={callerInfo}
         callDuration={callDuration}
       />
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
+            <p className="text-slate-500 dark:text-slate-400">Loading...</p>
+          </div>
+        </div>
+      </DashboardLayout>
     )
   }
 

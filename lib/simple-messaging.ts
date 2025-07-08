@@ -7,6 +7,7 @@ export interface SimpleMessage {
   content: string
   created_at: string
   message_type: string
+  is_read: boolean
 }
 
 export interface SimpleConversation {
