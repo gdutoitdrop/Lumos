@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Send, Phone, Video, ArrowLeft, User, CheckCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { messagingService, type Message } from "@/lib/simple-messaging"
 
 interface EnhancedMessageThreadProps {
   conversationId: string
@@ -20,18 +21,6 @@ interface EnhancedMessageThreadProps {
     username: string
     avatar_url?: string
   }
-}
-
-interface Message {
-  id: string
-  conversation_id: string
-  sender_id: string
-  receiver_id: string
-  message_text: string
-  content: string
-  sent_at: string
-  created_at: string
-  is_read: boolean
 }
 
 export function EnhancedMessageThread({
@@ -52,16 +41,19 @@ export function EnhancedMessageThread({
   const [participantInfo, setParticipantInfo] = useState(initialParticipantInfo)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  // Extract actual match ID (remove "match-" prefix if present)
+  const actualMatchId = matchId.startsWith("match-") ? matchId.replace("match-", "") : matchId
+
   // Fetch participant info if not provided
   useEffect(() => {
     const fetchParticipantInfo = async () => {
-      if (participantInfo || !matchId) return
+      if (participantInfo || !actualMatchId) return
 
       try {
         const { data: profile, error } = await supabase
           .from("profiles")
           .select("id, username, full_name, avatar_url")
-          .eq("id", matchId)
+          .eq("id", actualMatchId)
           .single()
 
         if (error) {
@@ -94,7 +86,7 @@ export function EnhancedMessageThread({
     }
 
     fetchParticipantInfo()
-  }, [matchId, participantInfo, supabase])
+  }, [actualMatchId, participantInfo, supabase])
 
   // Fetch messages
   useEffect(() => {
@@ -108,32 +100,9 @@ export function EnhancedMessageThread({
       setError(null)
 
       try {
-        // Try to fetch from messages table (correct table name)
-        const { data: messagesData, error: messagesError } = await supabase
-          .from("messages")
-          .select("*")
-          .eq("conversation_id", conversationId)
-          .order("created_at", { ascending: true })
-
-        if (messagesError) {
-          console.error("Error fetching messages:", messagesError)
-          // Create demo conversation if table doesn't exist
-          setMessages([
-            {
-              id: "demo-1",
-              conversation_id: conversationId,
-              sender_id: "demo-user",
-              receiver_id: matchId,
-              message_text: "Welcome to the messaging system! This is a demo conversation.",
-              content: "Welcome to the messaging system! This is a demo conversation.",
-              sent_at: new Date().toISOString(),
-              created_at: new Date().toISOString(),
-              is_read: false,
-            },
-          ])
-        } else {
-          setMessages(messagesData || [])
-        }
+        // Use messaging service to get messages
+        const messagesData = await messagingService.getConversationMessages(conversationId)
+        setMessages(messagesData)
       } catch (error) {
         console.error("Error in fetchMessages:", error)
         // Use demo messages if everything fails
@@ -141,13 +110,20 @@ export function EnhancedMessageThread({
           {
             id: "demo-1",
             conversation_id: conversationId,
-            sender_id: "demo-user",
-            receiver_id: matchId,
-            message_text: "Demo message - messaging system is loading...",
-            content: "Demo message - messaging system is loading...",
-            sent_at: new Date().toISOString(),
-            created_at: new Date().toISOString(),
+            sender_id: actualMatchId,
+            content: "Hey! Great to match with you 😊",
+            message_type: "text",
+            created_at: new Date(Date.now() - 3600000).toISOString(),
             is_read: false,
+          },
+          {
+            id: "demo-2",
+            conversation_id: conversationId,
+            sender_id: user?.id || "current-user",
+            content: "Hi there! Nice to meet you too!",
+            message_type: "text",
+            created_at: new Date(Date.now() - 1800000).toISOString(),
+            is_read: true,
           },
         ])
       } finally {
@@ -157,34 +133,20 @@ export function EnhancedMessageThread({
 
     fetchMessages()
 
-    // Subscribe to new messages (only if conversation exists)
-    let messagesSubscription: any = null
-
-    if (conversationId) {
-      messagesSubscription = supabase
-        .channel(`messages-${conversationId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "messages",
-            filter: `conversation_id=eq.${conversationId}`,
-          },
-          (payload) => {
-            const newMessage = payload.new as Message
-            setMessages((prev) => [...prev, newMessage])
-          },
-        )
-        .subscribe()
+    // Subscribe to new messages
+    let subscription: any = null
+    if (conversationId && user) {
+      subscription = messagingService.subscribeToMessages(conversationId, (newMessage) => {
+        setMessages((prev) => [...prev, newMessage])
+      })
     }
 
     return () => {
-      if (messagesSubscription) {
-        supabase.removeChannel(messagesSubscription)
+      if (subscription && subscription.unsubscribe) {
+        subscription.unsubscribe()
       }
     }
-  }, [conversationId, supabase, matchId])
+  }, [conversationId, actualMatchId, user])
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -209,43 +171,27 @@ export function EnhancedMessageThread({
     setSuccess(null)
 
     try {
-      // Create message object
-      const messageData = {
-        conversation_id: conversationId || "demo",
-        sender_id: user.id,
-        receiver_id: matchId,
-        message_text: newMessage.trim(),
-        content: newMessage.trim(),
-        is_read: false,
-      }
+      // Send message using messaging service
+      const sentMessage = await messagingService.sendMessage(conversationId, user.id, newMessage.trim())
 
-      // Try to save to database
-      let savedMessage = null
-      if (conversationId) {
-        const { data, error } = await supabase.from("messages").insert(messageData).select().single()
-
-        if (error) {
-          console.error("Database error:", error)
-        } else {
-          savedMessage = data
+      if (sentMessage) {
+        setMessages((prev) => [...prev, sentMessage])
+        setNewMessage("")
+        setSuccess("Message sent!")
+      } else {
+        // Fallback: add message locally
+        const localMessage: Message = {
+          id: Date.now().toString(),
+          conversation_id: conversationId,
+          sender_id: user.id,
+          content: newMessage.trim(),
+          message_type: "text",
+          created_at: new Date().toISOString(),
+          is_read: false,
         }
-      }
-
-      // Add message to local state (works even if database fails)
-      const localMessage: Message = savedMessage || {
-        id: Date.now().toString(),
-        ...messageData,
-        sent_at: new Date().toISOString(),
-        created_at: new Date().toISOString(),
-      }
-
-      setMessages((prev) => [...prev, localMessage])
-      setNewMessage("")
-      setSuccess("Message sent!")
-
-      // Update conversation timestamp if possible
-      if (conversationId) {
-        await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId)
+        setMessages((prev) => [...prev, localMessage])
+        setNewMessage("")
+        setSuccess("Message sent!")
       }
 
       setTimeout(() => setSuccess(null), 2000)
@@ -271,7 +217,7 @@ export function EnhancedMessageThread({
     const groups: { date: string; messages: Message[] }[] = []
 
     messages.forEach((message) => {
-      const messageDate = formatMessageDate(message.sent_at || message.created_at)
+      const messageDate = formatMessageDate(message.created_at)
       const existingGroup = groups.find((group) => group.date === messageDate)
 
       if (existingGroup) {
@@ -346,7 +292,7 @@ export function EnhancedMessageThread({
             >
               <Video className="h-4 w-4" />
             </Button>
-            <Button variant="outline" size="icon" onClick={() => (window.location.href = `/profile/${matchId}`)}>
+            <Button variant="outline" size="icon" onClick={() => (window.location.href = `/profile/${actualMatchId}`)}>
               <User className="h-4 w-4" />
             </Button>
           </div>
@@ -432,13 +378,13 @@ export function EnhancedMessageThread({
                         }`}
                       >
                         <CardContent className="p-3">
-                          <p className="text-sm leading-relaxed">{message.message_text || message.content}</p>
+                          <p className="text-sm leading-relaxed">{message.content}</p>
                           <p
                             className={`text-xs mt-2 ${
                               isCurrentUser ? "text-rose-100" : "text-slate-500 dark:text-slate-400"
                             }`}
                           >
-                            {formatMessageTime(message.sent_at || message.created_at)}
+                            {formatMessageTime(message.created_at)}
                           </p>
                         </CardContent>
                       </Card>

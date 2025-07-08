@@ -41,7 +41,7 @@ class MessagingService {
       }
 
       if (!participantData || participantData.length === 0) {
-        return []
+        return this.getDemoConversations(userId)
       }
 
       const conversationIds = participantData.map((p) => p.conversation_id)
@@ -168,6 +168,11 @@ class MessagingService {
 
   async getConversationMessages(conversationId: string): Promise<Message[]> {
     try {
+      // Don't query database if it's a demo conversation
+      if (conversationId.startsWith("demo-")) {
+        return this.getDemoMessages(conversationId)
+      }
+
       const { data, error } = await this.supabase
         .from("messages")
         .select("*")
@@ -220,6 +225,19 @@ class MessagingService {
 
   async sendMessage(conversationId: string, senderId: string, content: string): Promise<Message | null> {
     try {
+      // Don't send to database if it's a demo conversation
+      if (conversationId.startsWith("demo-")) {
+        return {
+          id: `demo-${Date.now()}`,
+          conversation_id: conversationId,
+          sender_id: senderId,
+          content,
+          message_type: "text",
+          created_at: new Date().toISOString(),
+          is_read: false,
+        }
+      }
+
       const { data, error } = await this.supabase
         .from("messages")
         .insert({
@@ -284,6 +302,11 @@ class MessagingService {
   }
 
   subscribeToMessages(conversationId: string, callback: (message: Message) => void) {
+    // Don't subscribe to demo conversations
+    if (conversationId.startsWith("demo-")) {
+      return { unsubscribe: () => {} }
+    }
+
     return this.supabase
       .channel(`messages:${conversationId}`)
       .on(
