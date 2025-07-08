@@ -1,6 +1,6 @@
 "use client"
 
-import type React from "react"
+import React from "react"
 
 import { useState, useEffect, useRef } from "react"
 import { useAuth } from "@/components/auth/auth-provider"
@@ -41,8 +41,27 @@ export function EnhancedMessageThread({
   const [participantInfo, setParticipantInfo] = useState(initialParticipantInfo)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Extract actual match ID (remove "match-" prefix if present)
-  const actualMatchId = matchId.startsWith("match-") ? matchId.replace("match-", "") : matchId
+  // Safely extract actual match ID (remove "match-" prefix if present)
+  const actualMatchId = React.useMemo(() => {
+    if (!matchId || typeof matchId !== "string") return ""
+    return matchId.startsWith("match-") ? matchId.replace("match-", "") : matchId
+  }, [matchId])
+
+  // Clean conversation ID for database queries
+  const cleanConversationId = React.useMemo(() => {
+    if (!conversationId || typeof conversationId !== "string") return "demo-conversation"
+
+    // Remove prefixes that might cause UUID issues
+    let cleanId = conversationId
+    if (cleanId.startsWith("match-")) {
+      cleanId = cleanId.replace("match-", "")
+    }
+    if (cleanId.startsWith("conv-")) {
+      cleanId = cleanId.replace("conv-", "")
+    }
+
+    return cleanId
+  }, [conversationId])
 
   // Fetch participant info if not provided
   useEffect(() => {
@@ -58,10 +77,10 @@ export function EnhancedMessageThread({
 
         if (error) {
           console.error("Error fetching participant:", error)
-          // Use fallback data
+          // Use fallback data based on match ID
           setParticipantInfo({
-            name: "User",
-            username: "user",
+            name: actualMatchId.includes("demo") ? "Demo User" : "User",
+            username: actualMatchId.includes("demo") ? "demo_user" : "user",
             avatar_url: undefined,
           })
           return
@@ -78,8 +97,8 @@ export function EnhancedMessageThread({
         console.error("Error in fetchParticipantInfo:", error)
         // Use fallback data
         setParticipantInfo({
-          name: "User",
-          username: "user",
+          name: actualMatchId.includes("demo") ? "Demo User" : "User",
+          username: actualMatchId.includes("demo") ? "demo_user" : "user",
           avatar_url: undefined,
         })
       }
@@ -91,7 +110,7 @@ export function EnhancedMessageThread({
   // Fetch messages
   useEffect(() => {
     const fetchMessages = async () => {
-      if (!conversationId) {
+      if (!cleanConversationId) {
         setLoading(false)
         return
       }
@@ -100,17 +119,20 @@ export function EnhancedMessageThread({
       setError(null)
 
       try {
-        // Use messaging service to get messages
-        const messagesData = await messagingService.getConversationMessages(conversationId)
+        console.log("Fetching messages for conversation:", cleanConversationId)
+        // Use messaging service to get messages with cleaned ID
+        const messagesData = await messagingService.getConversationMessages(cleanConversationId)
         setMessages(messagesData)
+        console.log("Loaded messages:", messagesData.length)
       } catch (error) {
         console.error("Error in fetchMessages:", error)
-        // Use demo messages if everything fails
+        setError("Failed to load messages")
+        // Use demo messages as fallback
         setMessages([
           {
             id: "demo-1",
-            conversation_id: conversationId,
-            sender_id: actualMatchId,
+            conversation_id: cleanConversationId,
+            sender_id: actualMatchId || "demo-user",
             content: "Hey! Great to match with you 😊",
             message_type: "text",
             created_at: new Date(Date.now() - 3600000).toISOString(),
@@ -118,7 +140,7 @@ export function EnhancedMessageThread({
           },
           {
             id: "demo-2",
-            conversation_id: conversationId,
+            conversation_id: cleanConversationId,
             sender_id: user?.id || "current-user",
             content: "Hi there! Nice to meet you too!",
             message_type: "text",
@@ -135,8 +157,9 @@ export function EnhancedMessageThread({
 
     // Subscribe to new messages
     let subscription: any = null
-    if (conversationId && user) {
-      subscription = messagingService.subscribeToMessages(conversationId, (newMessage) => {
+    if (cleanConversationId && user) {
+      subscription = messagingService.subscribeToMessages(cleanConversationId, (newMessage) => {
+        console.log("New message received:", newMessage)
         setMessages((prev) => [...prev, newMessage])
       })
     }
@@ -146,7 +169,7 @@ export function EnhancedMessageThread({
         subscription.unsubscribe()
       }
     }
-  }, [conversationId, actualMatchId, user])
+  }, [cleanConversationId, actualMatchId, user])
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -171,18 +194,20 @@ export function EnhancedMessageThread({
     setSuccess(null)
 
     try {
-      // Send message using messaging service
-      const sentMessage = await messagingService.sendMessage(conversationId, user.id, newMessage.trim())
+      console.log("Sending message to conversation:", cleanConversationId)
+      // Send message using messaging service with cleaned ID
+      const sentMessage = await messagingService.sendMessage(cleanConversationId, user.id, newMessage.trim())
 
       if (sentMessage) {
         setMessages((prev) => [...prev, sentMessage])
         setNewMessage("")
         setSuccess("Message sent!")
+        console.log("Message sent successfully:", sentMessage)
       } else {
         // Fallback: add message locally
         const localMessage: Message = {
           id: Date.now().toString(),
-          conversation_id: conversationId,
+          conversation_id: cleanConversationId,
           sender_id: user.id,
           content: newMessage.trim(),
           message_type: "text",
@@ -235,8 +260,8 @@ export function EnhancedMessageThread({
 
   // Default participant info if not loaded
   const displayParticipant = participantInfo || {
-    name: "Loading...",
-    username: "user",
+    name: actualMatchId.includes("demo") ? "Demo User" : "Loading...",
+    username: actualMatchId.includes("demo") ? "demo_user" : "user",
     avatar_url: undefined,
   }
 

@@ -2,13 +2,13 @@
 
 import { useEffect, useState } from "react"
 import { useAuth } from "@/components/auth/auth-provider"
-import { messagingService, type Conversation } from "@/lib/simple-messaging"
-import { Card, CardContent } from "@/components/ui/card"
+import { messagingService, type Conversation } from "@/lib/messaging-service"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Search, MessageCircle, Plus, Users } from "lucide-react"
+import { Search, MessageCircle, Plus, Users, Heart } from "lucide-react"
 
 export default function MessagesPage() {
   const { user } = useAuth()
@@ -33,51 +33,7 @@ export default function MessagesPage() {
       } catch (error) {
         console.error("Error fetching conversations:", error)
         setError("Failed to load conversations")
-        // Set demo conversations as fallback
-        setConversations([
-          {
-            id: "demo-conv-1",
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            other_user: {
-              id: "demo-user-1",
-              name: "Sarah Johnson",
-              username: "sarah_j",
-              avatar_url: undefined,
-            },
-            last_message: {
-              id: "demo-msg-1",
-              conversation_id: "demo-conv-1",
-              sender_id: "demo-user-1",
-              content: "Hey! How are you doing today?",
-              message_type: "text",
-              created_at: new Date().toISOString(),
-              is_read: false,
-            },
-            unread_count: 1,
-          },
-          {
-            id: "demo-conv-2",
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            other_user: {
-              id: "demo-user-2",
-              name: "Mike Chen",
-              username: "mike_c",
-              avatar_url: undefined,
-            },
-            last_message: {
-              id: "demo-msg-2",
-              conversation_id: "demo-conv-2",
-              sender_id: user.id,
-              content: "Thanks for the great conversation!",
-              message_type: "text",
-              created_at: new Date().toISOString(),
-              is_read: true,
-            },
-            unread_count: 0,
-          },
-        ])
+        setConversations([])
       } finally {
         setLoading(false)
       }
@@ -86,11 +42,15 @@ export default function MessagesPage() {
     fetchConversations()
   }, [user])
 
-  const filteredConversations = conversations.filter(
-    (conv) =>
-      conv.other_user?.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      conv.other_user?.username.toLowerCase().includes(searchQuery.toLowerCase()),
-  )
+  const filteredConversations = conversations.filter((conv) => {
+    if (!conv.other_user) return false
+
+    const searchLower = searchQuery.toLowerCase()
+    return (
+      conv.other_user.full_name?.toLowerCase().includes(searchLower) ||
+      conv.other_user.username?.toLowerCase().includes(searchLower)
+    )
+  })
 
   const formatMessageTime = (timestamp: string) => {
     const date = new Date(timestamp)
@@ -139,32 +99,39 @@ export default function MessagesPage() {
       <div className="container mx-auto px-4 py-6">
         <div className="max-w-4xl mx-auto">
           {/* Header */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h1 className="text-3xl font-bold text-slate-800">Messages</h1>
-                <p className="text-slate-600">Stay connected with your matches</p>
+          <Card className="mb-6">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <MessageCircle className="h-5 w-5 text-rose-500" />
+                  Messages
+                  {conversations.length > 0 && <Badge variant="secondary">{conversations.length}</Badge>}
+                </CardTitle>
+                <Button
+                  onClick={() => (window.location.href = "/matching")}
+                  className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Find Matches
+                </Button>
               </div>
-              <Button
-                onClick={() => (window.location.href = "/messages/new")}
-                className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                New Message
-              </Button>
-            </div>
+            </CardHeader>
+          </Card>
 
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
-              <Input
-                placeholder="Search conversations..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </div>
+          {/* Search */}
+          <Card className="mb-6">
+            <CardContent className="p-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400 h-4 w-4" />
+                <Input
+                  placeholder="Search conversations..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Error Message */}
           {error && (
@@ -175,108 +142,104 @@ export default function MessagesPage() {
             </Card>
           )}
 
-          {/* Loading State */}
-          {loading ? (
-            <Card>
-              <CardContent className="p-6">
-                <div className="text-center">
+          {/* Conversations */}
+          <Card>
+            <CardContent className="p-0">
+              {loading ? (
+                <div className="p-8 text-center">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
                   <p className="text-slate-600">Loading conversations...</p>
                 </div>
-              </CardContent>
-            </Card>
-          ) : filteredConversations.length === 0 ? (
-            /* Empty State */
-            <Card>
-              <CardContent className="p-12 text-center">
-                <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                  <MessageCircle className="h-8 w-8 text-white" />
+              ) : filteredConversations.length === 0 ? (
+                <div className="p-8 text-center">
+                  <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-3 w-12 h-12 mx-auto mb-4 flex items-center justify-center">
+                    <MessageCircle className="h-6 w-6 text-white" />
+                  </div>
+                  <h3 className="font-medium text-slate-600 mb-2">
+                    {searchQuery ? "No conversations found" : "No messages yet"}
+                  </h3>
+                  <p className="text-sm text-slate-500 mb-4">
+                    {searchQuery
+                      ? "Try adjusting your search terms"
+                      : "Start connecting with people to begin conversations"}
+                  </p>
+                  <div className="flex gap-3 justify-center">
+                    <Button
+                      variant="outline"
+                      onClick={() => (window.location.href = "/matching")}
+                      className="flex items-center gap-2"
+                    >
+                      <Heart className="h-4 w-4" />
+                      Find Matches
+                    </Button>
+                    <Button
+                      onClick={() => (window.location.href = "/community")}
+                      className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
+                    >
+                      <Users className="h-4 w-4 mr-2" />
+                      Join Community
+                    </Button>
+                  </div>
                 </div>
-                <h3 className="text-xl font-semibold text-slate-600 mb-2">
-                  {searchQuery ? "No conversations found" : "No messages yet"}
-                </h3>
-                <p className="text-slate-500 mb-6">
-                  {searchQuery
-                    ? "Try adjusting your search terms"
-                    : "Start connecting with people to begin conversations"}
-                </p>
-                <div className="flex gap-3 justify-center">
-                  <Button
-                    variant="outline"
-                    onClick={() => (window.location.href = "/matching")}
-                    className="flex items-center gap-2"
-                  >
-                    <Users className="h-4 w-4" />
-                    Find Matches
-                  </Button>
-                  <Button
-                    onClick={() => (window.location.href = "/messages/new")}
-                    className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    New Message
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            /* Conversations List */
-            <div className="space-y-2">
-              {filteredConversations.map((conversation) => (
-                <Card
-                  key={conversation.id}
-                  className="cursor-pointer hover:shadow-md transition-shadow duration-200 border-slate-200 hover:border-rose-300"
-                  onClick={() => handleConversationClick(conversation)}
-                >
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
-                      <Avatar className="h-12 w-12">
-                        {conversation.other_user?.avatar_url ? (
-                          <AvatarImage
-                            src={conversation.other_user.avatar_url || "/placeholder.svg"}
-                            alt={conversation.other_user.name}
-                          />
-                        ) : (
-                          <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                            {conversation.other_user?.name.charAt(0).toUpperCase() || "U"}
-                          </AvatarFallback>
-                        )}
-                      </Avatar>
+              ) : (
+                <div className="divide-y divide-slate-200">
+                  {filteredConversations.map((conversation) => (
+                    <div
+                      key={conversation.id}
+                      className="p-4 hover:bg-slate-50 cursor-pointer transition-colors"
+                      onClick={() => handleConversationClick(conversation)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-12 w-12">
+                          {conversation.other_user.avatar_url ? (
+                            <AvatarImage
+                              src={conversation.other_user.avatar_url || "/placeholder.svg"}
+                              alt={conversation.other_user.full_name || conversation.other_user.username}
+                            />
+                          ) : (
+                            <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
+                              {(conversation.other_user.full_name || conversation.other_user.username || "U")
+                                .charAt(0)
+                                .toUpperCase()}
+                            </AvatarFallback>
+                          )}
+                        </Avatar>
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-1">
-                          <h3 className="font-medium text-slate-800 truncate">
-                            {conversation.other_user?.name || "Unknown User"}
-                          </h3>
-                          <div className="flex items-center gap-2">
-                            {conversation.unread_count > 0 && (
-                              <Badge className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                                {conversation.unread_count}
-                              </Badge>
-                            )}
-                            <span className="text-xs text-slate-500">
-                              {conversation.last_message
-                                ? formatMessageTime(conversation.last_message.created_at)
-                                : formatMessageTime(conversation.created_at)}
-                            </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-1">
+                            <h3 className="font-medium text-slate-800 truncate">
+                              {conversation.other_user.full_name || conversation.other_user.username}
+                            </h3>
+                            <div className="flex items-center gap-2">
+                              {conversation.unread_count > 0 && (
+                                <Badge className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
+                                  {conversation.unread_count}
+                                </Badge>
+                              )}
+                              <span className="text-xs text-slate-500">
+                                {conversation.last_message
+                                  ? formatMessageTime(conversation.last_message.created_at)
+                                  : formatMessageTime(conversation.created_at)}
+                              </span>
+                            </div>
                           </div>
+
+                          <p className="text-sm text-slate-500 mb-1">@{conversation.other_user.username}</p>
+
+                          {conversation.last_message && (
+                            <p className="text-sm text-slate-600 truncate">
+                              {conversation.last_message.sender_id === user.id ? "You: " : ""}
+                              {conversation.last_message.content}
+                            </p>
+                          )}
                         </div>
-
-                        <p className="text-sm text-slate-500 mb-1">@{conversation.other_user?.username || "unknown"}</p>
-
-                        {conversation.last_message && (
-                          <p className="text-sm text-slate-600 truncate">
-                            {conversation.last_message.sender_id === user.id ? "You: " : ""}
-                            {conversation.last_message.content}
-                          </p>
-                        )}
                       </div>
                     </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          )}
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>
