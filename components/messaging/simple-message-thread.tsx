@@ -3,176 +3,160 @@
 import type React from "react"
 
 import { useState, useEffect, useRef } from "react"
-import { useAuth } from "@/components/auth/auth-provider"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Send } from "lucide-react"
-import { simpleMessaging, type SimpleMessage } from "@/lib/simple-messaging"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent } from "@/components/ui/card"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { Send, Phone, Video } from "lucide-react"
+import { messagingService, type Message } from "@/lib/simple-messaging"
 
-interface SimpleMessageThreadProps {
+interface MessageThreadProps {
   conversationId: string
+  userId: string
 }
 
-export function SimpleMessageThread({ conversationId }: SimpleMessageThreadProps) {
-  const { user } = useAuth()
-  const [messages, setMessages] = useState<SimpleMessage[]>([])
+export function SimpleMessageThread({ conversationId, userId }: MessageThreadProps) {
+  const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState("")
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!conversationId || !user) return
-
-    const fetchMessages = async () => {
-      try {
-        setError(null)
-        setLoading(true)
-        console.log("Fetching messages for conversation:", conversationId)
-        const messages = await simpleMessaging.getMessages(conversationId)
-        setMessages(messages)
-      } catch (error) {
-        console.error("Error fetching messages:", error)
-        setError("Failed to load messages")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchMessages()
+    loadMessages()
 
     // Subscribe to new messages
-    const subscription = simpleMessaging.subscribeToMessages(conversationId, (message) => {
-      console.log("Received new message:", message)
+    const subscription = messagingService.subscribeToMessages(conversationId, (message) => {
       setMessages((prev) => [...prev, message])
     })
 
     return () => {
-      console.log("Unsubscribing from messages")
       subscription.unsubscribe()
     }
-  }, [conversationId, user])
+  }, [conversationId])
 
   useEffect(() => {
-    // Scroll to bottom when messages change
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    scrollToBottom()
   }, [messages])
 
-  const handleSendMessage = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault()
-
-    if (!user || !conversationId || !newMessage.trim()) {
-      return
-    }
-
-    setSending(true)
-    setError(null)
-
+  const loadMessages = async () => {
     try {
-      console.log("Sending message...")
-      const message = await simpleMessaging.sendMessage(conversationId, user.id, newMessage.trim())
-      if (message) {
-        setNewMessage("")
-        console.log("Message sent successfully")
-      } else {
-        setError("Failed to send message")
-      }
+      setLoading(true)
+      const data = await messagingService.getConversationMessages(conversationId)
+      setMessages(data)
     } catch (error) {
-      console.error("Error sending message:", error)
-      setError("Failed to send message")
+      console.error("Error loading messages:", error)
     } finally {
-      setSending(false)
+      setLoading(false)
     }
   }
 
-  const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp)
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!newMessage.trim() || sending) return
+
+    try {
+      setSending(true)
+      const message = await messagingService.sendMessage(conversationId, userId, newMessage.trim())
+
+      if (message) {
+        setNewMessage("")
+      }
+    } catch (error) {
+      console.error("Error sending message:", error)
+    } finally {
+      setSending(false)
+    }
   }
 
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
-          <p className="text-slate-500 dark:text-slate-400">Loading messages...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-2"></div>
+          <p className="text-sm text-gray-500">Loading messages...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full flex flex-col bg-white dark:bg-slate-900">
+    <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="p-4 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-rose-50 to-amber-50 dark:from-slate-800 dark:to-slate-700">
-        <div className="flex items-center space-x-3">
-          <Avatar className="h-10 w-10">
-            <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">T</AvatarFallback>
-          </Avatar>
-          <div>
-            <h2 className="text-lg font-medium text-slate-800 dark:text-white">Test Conversation</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Test messaging system</p>
+      <div className="p-4 border-b bg-white">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <Avatar className="h-10 w-10">
+              <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">TU</AvatarFallback>
+            </Avatar>
+            <div>
+              <h3 className="font-semibold text-gray-900">Test User</h3>
+              <p className="text-sm text-gray-500">Online</p>
+            </div>
+          </div>
+          <div className="flex space-x-2">
+            <Button size="sm" variant="outline" className="hover:bg-rose-50 bg-transparent">
+              <Phone className="h-4 w-4" />
+            </Button>
+            <Button size="sm" variant="outline" className="hover:bg-rose-50 bg-transparent">
+              <Video className="h-4 w-4" />
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Error */}
-      {error && (
-        <Alert variant="destructive" className="m-4">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center">
-              <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
-                <Send className="h-8 w-8 text-white" />
-              </div>
-              <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">Start the conversation!</h3>
-              <p className="text-slate-500 dark:text-slate-400">Send your first message to begin chatting.</p>
-            </div>
+          <div className="text-center py-8">
+            <p className="text-gray-500">No messages yet. Start the conversation!</p>
           </div>
         ) : (
           messages.map((message) => {
-            const isCurrentUser = message.sender_id === user?.id
+            const isOwn = message.sender_id === userId
+            const senderName = message.sender?.full_name || message.sender?.username || "Unknown"
+            const initials = senderName
+              .split(" ")
+              .map((n) => n[0])
+              .join("")
+              .toUpperCase()
 
             return (
-              <div key={message.id} className={`flex ${isCurrentUser ? "justify-end" : "justify-start"}`}>
-                <div className={`flex ${isCurrentUser ? "flex-row-reverse" : "flex-row"} items-end gap-3 max-w-[80%]`}>
-                  <Avatar className="h-8 w-8 flex-shrink-0">
+              <div key={message.id} className={`flex ${isOwn ? "justify-end" : "justify-start"}`}>
+                <div
+                  className={`flex space-x-2 max-w-xs lg:max-w-md ${isOwn ? "flex-row-reverse space-x-reverse" : ""}`}
+                >
+                  <Avatar className="h-8 w-8">
                     <AvatarFallback
-                      className={
-                        isCurrentUser
-                          ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white"
-                          : "bg-slate-200 dark:bg-slate-700"
-                      }
-                    >
-                      {isCurrentUser ? "Y" : "T"}
-                    </AvatarFallback>
-                  </Avatar>
-
-                  <div
-                    className={`rounded-2xl px-4 py-3 ${
-                      isCurrentUser
-                        ? "bg-gradient-to-r from-rose-500 to-amber-500 text-white rounded-br-md"
-                        : "bg-slate-100 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-bl-md"
-                    }`}
-                  >
-                    <p className="text-sm leading-relaxed">{message.content}</p>
-                    <p
-                      className={`text-xs mt-2 ${
-                        isCurrentUser ? "text-rose-100" : "text-slate-500 dark:text-slate-400"
+                      className={`text-white text-xs ${
+                        isOwn
+                          ? "bg-gradient-to-r from-blue-500 to-purple-500"
+                          : "bg-gradient-to-r from-rose-500 to-amber-500"
                       }`}
                     >
-                      {formatTime(message.created_at)}
-                    </p>
-                  </div>
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <Card
+                    className={`${
+                      isOwn ? "bg-gradient-to-r from-blue-500 to-purple-500 text-white" : "bg-white border-gray-200"
+                    }`}
+                  >
+                    <CardContent className="p-3">
+                      <p className="text-sm">{message.content}</p>
+                      <p className={`text-xs mt-1 ${isOwn ? "text-blue-100" : "text-gray-500"}`}>
+                        {new Date(message.created_at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+                    </CardContent>
+                  </Card>
                 </div>
               </div>
             )
@@ -182,39 +166,27 @@ export function SimpleMessageThread({ conversationId }: SimpleMessageThreadProps
       </div>
 
       {/* Message Input */}
-      <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
-        <form onSubmit={handleSendMessage} className="flex items-end gap-3">
-          <div className="flex-1">
-            <Textarea
-              placeholder="Type your message..."
-              value={newMessage}
-              onChange={(e) => setNewMessage(e.target.value)}
-              className="min-h-[60px] max-h-[120px] resize-none border-slate-300 dark:border-slate-600 focus:border-rose-500 dark:focus:border-rose-400"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSendMessage()
-                }
-              }}
-              disabled={sending}
-            />
-          </div>
+      <div className="p-4 border-t bg-white">
+        <form onSubmit={handleSendMessage} className="flex space-x-2">
+          <Input
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            placeholder="Type a message..."
+            disabled={sending}
+            className="flex-1"
+          />
           <Button
             type="submit"
-            size="icon"
-            className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white h-12 w-12 rounded-xl shadow-md"
-            disabled={sending || !newMessage.trim()}
+            disabled={!newMessage.trim() || sending}
+            className="bg-gradient-to-r from-rose-500 to-amber-500 text-white hover:from-rose-600 hover:to-amber-600"
           >
             {sending ? (
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
             ) : (
-              <Send className="h-5 w-5" />
+              <Send className="h-4 w-4" />
             )}
           </Button>
         </form>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-          {sending ? "Sending message..." : "Press Enter to send, Shift+Enter for new line"}
-        </p>
       </div>
     </div>
   )

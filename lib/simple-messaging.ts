@@ -1,109 +1,84 @@
 import { createClient } from "@/lib/supabase/client"
 
-export interface SimpleMessage {
+export interface Message {
   id: string
   conversation_id: string
   sender_id: string
   content: string
-  created_at: string
   message_type: string
+  created_at: string
   is_read: boolean
+  sender?: {
+    full_name: string | null
+    username: string | null
+  }
 }
 
-export interface SimpleConversation {
+export interface Conversation {
   id: string
   created_at: string
   updated_at: string
-  participants: string[]
-  last_message?: SimpleMessage
+  participants?: Array<{
+    user_id: string
+    profiles: {
+      full_name: string | null
+      username: string | null
+    }
+  }>
+  last_message?: Message
 }
 
-class SimpleMessagingService {
+class MessagingService {
   private supabase = createClient()
 
-  async getConversations(userId: string): Promise<SimpleConversation[]> {
+  async getUserConversations(userId: string): Promise<Conversation[]> {
     try {
-      console.log("Fetching conversations for user:", userId)
-
-      // Get conversations where user is a participant
-      const { data: participantData, error: participantError } = await this.supabase
-        .from("conversation_participants")
-        .select("conversation_id")
-        .eq("user_id", userId)
-
-      if (participantError) {
-        console.error("Error fetching participants:", participantError)
-        return []
-      }
-
-      if (!participantData || participantData.length === 0) {
-        console.log("No conversations found")
-        return []
-      }
-
-      const conversationIds = participantData.map((p) => p.conversation_id)
-
-      // Get conversation details
-      const { data: conversations, error: conversationsError } = await this.supabase
+      const { data, error } = await this.supabase
         .from("conversations")
-        .select("*")
-        .in("id", conversationIds)
+        .select(`
+          id,
+          created_at,
+          updated_at,
+          conversation_participants!inner (
+            user_id,
+            profiles (
+              full_name,
+              username
+            )
+          )
+        `)
+        .eq("conversation_participants.user_id", userId)
         .order("updated_at", { ascending: false })
 
-      if (conversationsError) {
-        console.error("Error fetching conversations:", conversationsError)
+      if (error) {
+        console.error("Error fetching conversations:", error)
         return []
       }
 
-      // Get participants for each conversation
-      const { data: allParticipants, error: allParticipantsError } = await this.supabase
-        .from("conversation_participants")
-        .select("*")
-        .in("conversation_id", conversationIds)
-
-      if (allParticipantsError) {
-        console.error("Error fetching all participants:", allParticipantsError)
-      }
-
-      // Get last message for each conversation
-      const { data: lastMessages, error: lastMessagesError } = await this.supabase
-        .from("messages")
-        .select("*")
-        .in("conversation_id", conversationIds)
-        .order("created_at", { ascending: false })
-
-      if (lastMessagesError) {
-        console.error("Error fetching last messages:", lastMessagesError)
-      }
-
-      // Combine data
-      const result: SimpleConversation[] = conversations.map((conv) => {
-        const participants = allParticipants?.filter((p) => p.conversation_id === conv.id)?.map((p) => p.user_id) || []
-
-        const lastMessage = lastMessages?.find((m) => m.conversation_id === conv.id)
-
-        return {
-          ...conv,
-          participants,
-          last_message: lastMessage,
-        }
-      })
-
-      console.log("Fetched conversations:", result)
-      return result
+      return data || []
     } catch (error) {
-      console.error("Error in getConversations:", error)
+      console.error("Error in getUserConversations:", error)
       return []
     }
   }
 
-  async getMessages(conversationId: string): Promise<SimpleMessage[]> {
+  async getConversationMessages(conversationId: string): Promise<Message[]> {
     try {
-      console.log("Fetching messages for conversation:", conversationId)
-
-      const { data: messages, error } = await this.supabase
+      const { data, error } = await this.supabase
         .from("messages")
-        .select("*")
+        .select(`
+          id,
+          conversation_id,
+          sender_id,
+          content,
+          message_type,
+          created_at,
+          is_read,
+          profiles (
+            full_name,
+            username
+          )
+        `)
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true })
 
@@ -112,27 +87,41 @@ class SimpleMessagingService {
         return []
       }
 
-      console.log("Fetched messages:", messages)
-      return messages || []
+      return (
+        data?.map((msg) => ({
+          ...msg,
+          sender: msg.profiles,
+        })) || []
+      )
     } catch (error) {
-      console.error("Error in getMessages:", error)
+      console.error("Error in getConversationMessages:", error)
       return []
     }
   }
 
-  async sendMessage(conversationId: string, senderId: string, content: string): Promise<SimpleMessage | null> {
+  async sendMessage(conversationId: string, senderId: string, content: string): Promise<Message | null> {
     try {
-      console.log("Sending message:", { conversationId, senderId, content })
-
-      const { data: message, error } = await this.supabase
+      const { data, error } = await this.supabase
         .from("messages")
         .insert({
           conversation_id: conversationId,
           sender_id: senderId,
-          content: content.trim(),
+          content,
           message_type: "text",
         })
-        .select()
+        .select(`
+          id,
+          conversation_id,
+          sender_id,
+          content,
+          message_type,
+          created_at,
+          is_read,
+          profiles (
+            full_name,
+            username
+          )
+        `)
         .single()
 
       if (error) {
@@ -146,49 +135,43 @@ class SimpleMessagingService {
         .update({ updated_at: new Date().toISOString() })
         .eq("id", conversationId)
 
-      console.log("Message sent:", message)
-      return message
+      return {
+        ...data,
+        sender: data.profiles,
+      }
     } catch (error) {
       console.error("Error in sendMessage:", error)
       return null
     }
   }
 
-  async createConversation(userId1: string, userId2: string): Promise<string | null> {
+  async createConversation(participantIds: string[]): Promise<string | null> {
     try {
-      console.log("Creating conversation between:", userId1, userId2)
-
-      // Check if conversation already exists
-      const existing = await this.findExistingConversation(userId1, userId2)
-      if (existing) {
-        console.log("Found existing conversation:", existing)
-        return existing
-      }
-
-      // Create new conversation
-      const { data: conversation, error: conversationError } = await this.supabase
+      // Create conversation
+      const { data: conversation, error: convError } = await this.supabase
         .from("conversations")
         .insert({})
         .select()
         .single()
 
-      if (conversationError) {
-        console.error("Error creating conversation:", conversationError)
+      if (convError) {
+        console.error("Error creating conversation:", convError)
         return null
       }
 
       // Add participants
-      const { error: participantsError } = await this.supabase.from("conversation_participants").insert([
-        { conversation_id: conversation.id, user_id: userId1 },
-        { conversation_id: conversation.id, user_id: userId2 },
-      ])
+      const participants = participantIds.map((userId) => ({
+        conversation_id: conversation.id,
+        user_id: userId,
+      }))
+
+      const { error: participantsError } = await this.supabase.from("conversation_participants").insert(participants)
 
       if (participantsError) {
         console.error("Error adding participants:", participantsError)
         return null
       }
 
-      console.log("Created conversation:", conversation.id)
       return conversation.id
     } catch (error) {
       console.error("Error in createConversation:", error)
@@ -196,55 +179,9 @@ class SimpleMessagingService {
     }
   }
 
-  async findExistingConversation(userId1: string, userId2: string): Promise<string | null> {
-    try {
-      // Get conversations for user1
-      const { data: user1Convs, error: error1 } = await this.supabase
-        .from("conversation_participants")
-        .select("conversation_id")
-        .eq("user_id", userId1)
-
-      if (error1) return null
-
-      // Get conversations for user2
-      const { data: user2Convs, error: error2 } = await this.supabase
-        .from("conversation_participants")
-        .select("conversation_id")
-        .eq("user_id", userId2)
-
-      if (error2) return null
-
-      // Find common conversations
-      const user1ConvIds = user1Convs?.map((c) => c.conversation_id) || []
-      const user2ConvIds = user2Convs?.map((c) => c.conversation_id) || []
-      const commonConvIds = user1ConvIds.filter((id) => user2ConvIds.includes(id))
-
-      if (commonConvIds.length === 0) return null
-
-      // Check if any common conversation has exactly 2 participants (direct message)
-      for (const convId of commonConvIds) {
-        const { data: participants, error } = await this.supabase
-          .from("conversation_participants")
-          .select("user_id")
-          .eq("conversation_id", convId)
-
-        if (!error && participants && participants.length === 2) {
-          return convId
-        }
-      }
-
-      return null
-    } catch (error) {
-      console.error("Error finding existing conversation:", error)
-      return null
-    }
-  }
-
-  subscribeToMessages(conversationId: string, onMessage: (message: SimpleMessage) => void) {
-    console.log("Subscribing to messages for conversation:", conversationId)
-
+  subscribeToMessages(conversationId: string, callback: (message: Message) => void) {
     return this.supabase
-      .channel(`messages-${conversationId}`)
+      .channel(`messages:${conversationId}`)
       .on(
         "postgres_changes",
         {
@@ -253,15 +190,36 @@ class SimpleMessagingService {
           table: "messages",
           filter: `conversation_id=eq.${conversationId}`,
         },
-        (payload) => {
-          console.log("Received new message:", payload.new)
-          onMessage(payload.new as SimpleMessage)
+        async (payload) => {
+          // Fetch the complete message with sender info
+          const { data } = await this.supabase
+            .from("messages")
+            .select(`
+              id,
+              conversation_id,
+              sender_id,
+              content,
+              message_type,
+              created_at,
+              is_read,
+              profiles (
+                full_name,
+                username
+              )
+            `)
+            .eq("id", payload.new.id)
+            .single()
+
+          if (data) {
+            callback({
+              ...data,
+              sender: data.profiles,
+            })
+          }
         },
       )
-      .subscribe((status) => {
-        console.log("Subscription status:", status)
-      })
+      .subscribe()
   }
 }
 
-export const simpleMessaging = new SimpleMessagingService()
+export const messagingService = new MessagingService()

@@ -6,18 +6,18 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { IncomingCallModal } from "@/components/messaging/incoming-call-modal"
 import { VideoCallInterface } from "@/components/messaging/video-call-interface"
 import { MessageCircle } from "lucide-react"
-import { useAuth } from "@/components/auth/auth-provider"
-import { webRTCService, type CallData } from "@/lib/webrtc-service"
-import { messagingService } from "@/lib/messaging-service"
+import { createClient } from "@/lib/supabase/client"
 import { SimpleMessageThread } from "@/components/messaging/simple-message-thread"
 import { SimpleConversationList } from "@/components/messaging/simple-conversation-list"
+import { Card, CardContent } from "@/components/ui/card"
+import { webRTCService, type CallData } from "@/lib/webrtc-service"
+import { messagingService } from "@/lib/messaging-service"
 
 export default function MessagesPage() {
   const searchParams = useSearchParams()
-  const { user, isLoading } = useAuth()
+  const [user, setUser] = useState<any>(null)
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
-
-  // Call state
+  const [loading, setLoading] = useState(true)
   const [incomingCall, setIncomingCall] = useState<CallData | null>(null)
   const [currentCall, setCurrentCall] = useState<CallData | null>(null)
   const [isInCall, setIsInCall] = useState(false)
@@ -28,6 +28,29 @@ export default function MessagesPage() {
   const [callDuration, setCallDuration] = useState("00:00")
   const [callStartTime, setCallStartTime] = useState<Date | null>(null)
   const [callerInfo, setCallerInfo] = useState<{ name: string; username: string; avatar_url?: string } | null>(null)
+  const supabase = createClient()
+
+  useEffect(() => {
+    getUser()
+  }, [])
+
+  const getUser = async () => {
+    try {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.getUser()
+      if (error) {
+        console.error("Error getting user:", error)
+        return
+      }
+      setUser(user)
+    } catch (error) {
+      console.error("Error in getUser:", error)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     // Check if there's a conversation ID in the URL
@@ -266,30 +289,34 @@ export default function MessagesPage() {
     )
   }
 
-  if (isLoading) {
+  if (loading) {
     return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
-            <p className="text-slate-500 dark:text-slate-400">Loading...</p>
-          </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-rose-500 mx-auto mb-4"></div>
+          <p className="text-lg text-gray-600">Loading messages...</p>
         </div>
-      </DashboardLayout>
+      </div>
     )
   }
 
   if (!user) {
     return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <MessageCircle className="mx-auto h-12 w-12 text-slate-300 dark:text-slate-600 mb-4" />
-            <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">Please log in</h3>
-            <p className="text-slate-500 dark:text-slate-400">You need to be logged in to access messages</p>
-          </div>
-        </div>
-      </DashboardLayout>
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardContent className="p-8 text-center">
+            <MessageCircle className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">Sign in to continue</h2>
+            <p className="text-gray-600 mb-6">You need to be logged in to access your messages.</p>
+            <a
+              href="/login"
+              className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-rose-500 to-amber-500 text-white rounded-md hover:from-rose-600 hover:to-amber-600 transition-all duration-200"
+            >
+              Sign In
+            </a>
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 
@@ -299,6 +326,7 @@ export default function MessagesPage() {
         {/* Left Sidebar */}
         <div className="w-full md:w-96 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
           <SimpleConversationList
+            userId={user.id}
             onSelectConversation={handleSelectConversation}
             selectedConversationId={selectedConversationId}
           />
@@ -307,7 +335,7 @@ export default function MessagesPage() {
         {/* Right Side - Message Thread or Empty State */}
         <div className="hidden md:flex flex-1">
           {selectedConversationId ? (
-            <SimpleMessageThread conversationId={selectedConversationId} />
+            <SimpleMessageThread conversationId={selectedConversationId} userId={user.id} />
           ) : (
             <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900">
               <div className="text-center max-w-md">
