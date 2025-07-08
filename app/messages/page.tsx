@@ -3,328 +3,88 @@
 import { useState, useEffect } from "react"
 import { useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { IncomingCallModal } from "@/components/messaging/incoming-call-modal"
-import { VideoCallInterface } from "@/components/messaging/video-call-interface"
 import { MessageCircle } from "lucide-react"
 import { createClient } from "@/lib/supabase/client"
 import { SimpleMessageThread } from "@/components/messaging/simple-message-thread"
 import { SimpleConversationList } from "@/components/messaging/simple-conversation-list"
 import { Card, CardContent } from "@/components/ui/card"
-import { webRTCService, type CallData } from "@/lib/webrtc-service"
-import { messagingService } from "@/lib/messaging-service"
+import { Button } from "@/components/ui/button"
 
 export default function MessagesPage() {
   const searchParams = useSearchParams()
   const [user, setUser] = useState<any>(null)
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [incomingCall, setIncomingCall] = useState<CallData | null>(null)
-  const [currentCall, setCurrentCall] = useState<CallData | null>(null)
-  const [isInCall, setIsInCall] = useState(false)
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null)
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true)
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true)
-  const [callDuration, setCallDuration] = useState("00:00")
-  const [callStartTime, setCallStartTime] = useState<Date | null>(null)
-  const [callerInfo, setCallerInfo] = useState<{ name: string; username: string; avatar_url?: string } | null>(null)
   const supabase = createClient()
 
   useEffect(() => {
     getUser()
   }, [])
 
-  const getUser = async () => {
-    try {
-      const {
-        data: { user },
-        error,
-      } = await supabase.auth.getUser()
-      if (error) {
-        console.error("Error getting user:", error)
-        return
-      }
-      setUser(user)
-    } catch (error) {
-      console.error("Error in getUser:", error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    // Check if there's a conversation ID in the URL
     const conversationId = searchParams.get("conversation")
     if (conversationId) {
       setSelectedConversationId(conversationId)
     }
   }, [searchParams])
 
-  useEffect(() => {
-    if (!user) return
-
-    // Set up WebRTC callbacks
-    webRTCService.onRemoteStream = (stream) => {
-      console.log("Received remote stream")
-      setRemoteStream(stream)
+  const getUser = async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+      setUser(user)
+    } catch (error) {
+      console.error("Error getting user:", error)
+    } finally {
+      setLoading(false)
     }
-
-    webRTCService.onCallEnd = () => {
-      console.log("Call ended")
-      handleEndCall()
-    }
-
-    // Subscribe to call signals
-    webRTCService.subscribeToSignals(user.id, async (callData) => {
-      console.log("Received call signal:", callData)
-
-      switch (callData.signalType) {
-        case "call-start":
-          // Incoming call
-          const { data: profile } = await messagingService.supabase
-            .from("profiles")
-            .select("username, full_name, avatar_url")
-            .eq("id", callData.fromUserId)
-            .single()
-
-          if (profile) {
-            setCallerInfo({
-              name: profile.full_name || profile.username || "Unknown User",
-              username: profile.username || "unknown",
-              avatar_url: profile.avatar_url,
-            })
-          }
-
-          setIncomingCall(callData)
-          break
-
-        case "call-accept":
-          // Call was accepted
-          console.log("Call accepted")
-          await webRTCService.createOffer()
-          break
-
-        case "call-reject":
-          // Call was rejected
-          console.log("Call rejected")
-          setCurrentCall(null)
-          setIncomingCall(null)
-          break
-
-        case "offer":
-          await webRTCService.handleOffer(callData)
-          break
-
-        case "answer":
-          await webRTCService.handleAnswer(callData)
-          break
-
-        case "ice-candidate":
-          await webRTCService.handleIceCandidate(callData)
-          break
-
-        case "call-end":
-          handleEndCall()
-          break
-      }
-    })
-
-    return () => {
-      // Cleanup
-      webRTCService.endCall()
-    }
-  }, [user])
-
-  // Update call duration
-  useEffect(() => {
-    if (!callStartTime) return
-
-    const interval = setInterval(() => {
-      const now = new Date()
-      const diff = now.getTime() - callStartTime.getTime()
-      const minutes = Math.floor(diff / 60000)
-      const seconds = Math.floor((diff % 60000) / 1000)
-      setCallDuration(`${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`)
-    }, 1000)
-
-    return () => clearInterval(interval)
-  }, [callStartTime])
+  }
 
   const handleSelectConversation = (conversationId: string) => {
     setSelectedConversationId(conversationId)
-    // Update URL without page reload
     const url = new URL(window.location.href)
     url.searchParams.set("conversation", conversationId)
     window.history.pushState({}, "", url.toString())
   }
 
-  const handleStartCall = async (toUserId: string, callType: "audio" | "video") => {
-    if (!user) return
-
-    try {
-      console.log("Starting call to:", toUserId, "type:", callType)
-
-      const callId = await webRTCService.startCall(user.id, toUserId, callType)
-
-      setCurrentCall({
-        callId,
-        fromUserId: user.id,
-        toUserId,
-        callType,
-        signalType: "call-start",
-      })
-
-      setIsInCall(true)
-      setCallStartTime(new Date())
-      setLocalStream(webRTCService.getLocalStream())
-      setIsVideoEnabled(callType === "video")
-      setIsAudioEnabled(true)
-
-      // Send call start message to conversation
-      const conversations = await messagingService.getUserConversations(user.id)
-      const conversation = conversations.find((c) => c.participants.some((p) => p.user_id === toUserId))
-
-      if (conversation) {
-        await messagingService.sendMessage(conversation.id, user.id, `Started a ${callType} call`, "call_start")
-      }
-    } catch (error) {
-      console.error("Error starting call:", error)
-    }
-  }
-
-  const handleAcceptCall = async () => {
-    if (!incomingCall || !user) return
-
-    try {
-      console.log("Accepting call")
-
-      await webRTCService.acceptCall(incomingCall)
-
-      setCurrentCall(incomingCall)
-      setIsInCall(true)
-      setCallStartTime(new Date())
-      setLocalStream(webRTCService.getLocalStream())
-      setIsVideoEnabled(incomingCall.callType === "video")
-      setIsAudioEnabled(true)
-      setIncomingCall(null)
-    } catch (error) {
-      console.error("Error accepting call:", error)
-    }
-  }
-
-  const handleRejectCall = async () => {
-    if (!incomingCall) return
-
-    try {
-      console.log("Rejecting call")
-      await webRTCService.rejectCall(incomingCall)
-      setIncomingCall(null)
-      setCallerInfo(null)
-    } catch (error) {
-      console.error("Error rejecting call:", error)
-    }
-  }
-
-  const handleEndCall = async () => {
-    try {
-      console.log("Ending call")
-
-      if (currentCall && user) {
-        // Send call end message to conversation
-        const conversations = await messagingService.getUserConversations(user.id)
-        const conversation = conversations.find((c) =>
-          c.participants.some((p) => p.user_id === currentCall.toUserId || p.user_id === currentCall.fromUserId),
-        )
-
-        if (conversation) {
-          await messagingService.sendMessage(
-            conversation.id,
-            user.id,
-            `Call ended • Duration: ${callDuration}`,
-            "call_end",
-          )
-        }
-      }
-
-      await webRTCService.endCall()
-
-      setCurrentCall(null)
-      setIsInCall(false)
-      setLocalStream(null)
-      setRemoteStream(null)
-      setCallStartTime(null)
-      setCallDuration("00:00")
-      setIncomingCall(null)
-      setCallerInfo(null)
-    } catch (error) {
-      console.error("Error ending call:", error)
-    }
-  }
-
-  const handleToggleVideo = () => {
-    const enabled = webRTCService.toggleVideo()
-    setIsVideoEnabled(enabled)
-  }
-
-  const handleToggleAudio = () => {
-    const enabled = webRTCService.toggleAudio()
-    setIsAudioEnabled(enabled)
-  }
-
-  // If in call, show video interface
-  if (isInCall && currentCall && callerInfo) {
-    return (
-      <VideoCallInterface
-        localStream={localStream}
-        remoteStream={remoteStream}
-        isVideoEnabled={isVideoEnabled}
-        isAudioEnabled={isAudioEnabled}
-        isVideoCall={currentCall.callType === "video"}
-        onToggleVideo={handleToggleVideo}
-        onToggleAudio={handleToggleAudio}
-        onEndCall={handleEndCall}
-        participantInfo={callerInfo}
-        callDuration={callDuration}
-      />
-    )
-  }
-
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-rose-500 mx-auto mb-4"></div>
-          <p className="text-lg text-gray-600">Loading messages...</p>
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading...</p>
+          </div>
         </div>
-      </div>
+      </DashboardLayout>
     )
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Card className="w-full max-w-md">
-          <CardContent className="p-8 text-center">
-            <MessageCircle className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Sign in to continue</h2>
-            <p className="text-gray-600 mb-6">You need to be logged in to access your messages.</p>
-            <a
-              href="/login"
-              className="inline-flex items-center px-4 py-2 bg-gradient-to-r from-rose-500 to-amber-500 text-white rounded-md hover:from-rose-600 hover:to-amber-600 transition-all duration-200"
-            >
-              Sign In
-            </a>
-          </CardContent>
-        </Card>
-      </div>
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Card className="w-full max-w-md">
+            <CardContent className="p-8 text-center">
+              <MessageCircle className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+              <h2 className="text-xl font-bold text-gray-900 mb-2">Sign in to continue</h2>
+              <p className="text-gray-600 mb-6">You need to be logged in to access messages.</p>
+              <Button asChild className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
+                <a href="/login">Sign In</a>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </DashboardLayout>
     )
   }
 
   return (
     <DashboardLayout>
-      <div className="h-[calc(100vh-120px)] flex bg-white dark:bg-slate-900 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div className="h-[calc(100vh-120px)] flex bg-white rounded-lg shadow-sm border overflow-hidden">
         {/* Left Sidebar */}
-        <div className="w-full md:w-96 border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+        <div className="w-full md:w-96 border-r">
           <SimpleConversationList
             userId={user.id}
             onSelectConversation={handleSelectConversation}
@@ -332,35 +92,23 @@ export default function MessagesPage() {
           />
         </div>
 
-        {/* Right Side - Message Thread or Empty State */}
+        {/* Right Side */}
         <div className="hidden md:flex flex-1">
           {selectedConversationId ? (
             <SimpleMessageThread conversationId={selectedConversationId} userId={user.id} />
           ) : (
-            <div className="flex-1 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800 dark:to-slate-900">
+            <div className="flex-1 flex items-center justify-center bg-gray-50">
               <div className="text-center max-w-md">
-                <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-4 w-20 h-20 mx-auto mb-6 flex items-center justify-center">
-                  <MessageCircle className="h-10 w-10 text-white" />
+                <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-4 w-16 h-16 mx-auto mb-4 flex items-center justify-center">
+                  <MessageCircle className="h-8 w-8 text-white" />
                 </div>
-                <h2 className="text-2xl font-bold mb-3 text-slate-700 dark:text-slate-300">Select a conversation</h2>
-                <p className="text-slate-500 dark:text-slate-400">
-                  Choose a conversation from the list to start messaging
-                </p>
+                <h2 className="text-xl font-bold mb-2 text-gray-700">Select a conversation</h2>
+                <p className="text-gray-500">Choose a conversation to start messaging</p>
               </div>
             </div>
           )}
         </div>
       </div>
-
-      {/* Incoming Call Modal */}
-      {incomingCall && callerInfo && (
-        <IncomingCallModal
-          callData={incomingCall}
-          callerInfo={callerInfo}
-          onAccept={handleAcceptCall}
-          onReject={handleRejectCall}
-        />
-      )}
     </DashboardLayout>
   )
 }

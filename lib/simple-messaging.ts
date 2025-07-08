@@ -8,23 +8,13 @@ export interface Message {
   message_type: string
   created_at: string
   is_read: boolean
-  sender?: {
-    full_name: string | null
-    username: string | null
-  }
 }
 
 export interface Conversation {
   id: string
   created_at: string
   updated_at: string
-  participants?: Array<{
-    user_id: string
-    profiles: {
-      full_name: string | null
-      username: string | null
-    }
-  }>
+  participants: string[]
   last_message?: Message
 }
 
@@ -33,75 +23,70 @@ class MessagingService {
 
   async getUserConversations(userId: string): Promise<Conversation[]> {
     try {
-      const { data, error } = await this.supabase
-        .from("conversations")
-        .select(`
-          id,
-          created_at,
-          updated_at,
-          conversation_participants!inner (
-            user_id,
-            profiles (
-              full_name,
-              username
-            )
-          )
-        `)
-        .eq("conversation_participants.user_id", userId)
-        .order("updated_at", { ascending: false })
+      // Get participant data first
+      const { data: participantData } = await this.supabase
+        .from("conversation_participants")
+        .select("conversation_id")
+        .eq("user_id", userId)
 
-      if (error) {
-        console.error("Error fetching conversations:", error)
+      if (!participantData || participantData.length === 0) {
         return []
       }
 
-      return data || []
+      const conversationIds = participantData.map((p) => p.conversation_id)
+
+      // Get conversations
+      const { data: conversations } = await this.supabase
+        .from("conversations")
+        .select("*")
+        .in("id", conversationIds)
+        .order("updated_at", { ascending: false })
+
+      if (!conversations) return []
+
+      // Get all participants for these conversations
+      const { data: allParticipants } = await this.supabase
+        .from("conversation_participants")
+        .select("*")
+        .in("conversation_id", conversationIds)
+
+      // Get last messages
+      const { data: lastMessages } = await this.supabase
+        .from("messages")
+        .select("*")
+        .in("conversation_id", conversationIds)
+        .order("created_at", { ascending: false })
+
+      // Combine data
+      return conversations.map((conv) => ({
+        ...conv,
+        participants: allParticipants?.filter((p) => p.conversation_id === conv.id)?.map((p) => p.user_id) || [],
+        last_message: lastMessages?.find((m) => m.conversation_id === conv.id),
+      }))
     } catch (error) {
-      console.error("Error in getUserConversations:", error)
+      console.error("Error fetching conversations:", error)
       return []
     }
   }
 
   async getConversationMessages(conversationId: string): Promise<Message[]> {
     try {
-      const { data, error } = await this.supabase
+      const { data } = await this.supabase
         .from("messages")
-        .select(`
-          id,
-          conversation_id,
-          sender_id,
-          content,
-          message_type,
-          created_at,
-          is_read,
-          profiles (
-            full_name,
-            username
-          )
-        `)
+        .select("*")
         .eq("conversation_id", conversationId)
         .order("created_at", { ascending: true })
 
-      if (error) {
-        console.error("Error fetching messages:", error)
-        return []
-      }
-
-      return (
-        data?.map((msg) => ({
-          ...msg,
-          sender: msg.profiles,
-        })) || []
-      )
+      return data || []
     } catch (error) {
-      console.error("Error in getConversationMessages:", error)
+      console.error("Error fetching messages:", error)
       return []
     }
   }
 
   async sendMessage(conversationId: string, senderId: string, content: string): Promise<Message | null> {
     try {
-      const { data, error } = await this.supabase
+      const { data } = await this.supabase
         .from("messages")
         .insert({
           conversation_id: conversationId,
@@ -109,38 +94,20 @@ class MessagingService {
           content,
           message_type: "text",
         })
-        .select(`
-          id,
-          conversation_id,
-          sender_id,
-          content,
-          message_type,
-          created_at,
-          is_read,
-          profiles (
-            full_name,
-            username
-          )
-        `)
+        .select()
         .single()
 
-      if (error) {
-        console.error("Error sending message:", error)
-        return null
+      if (data) {
+        // Update conversation timestamp
+        await this.supabase
+          .from("conversations")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", conversationId)
       }
 
-      // Update conversation timestamp
-      await this.supabase
-        .from("conversations")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", conversationId)
-
-      return {
-        ...data,
-        sender: data.profiles,
-      }
+      return data
     } catch (error) {
-      console.error("Error in sendMessage:", error)
+      console.error("Error sending message:", error)
       return null
     }
   }
@@ -148,16 +115,9 @@ class MessagingService {
   async createConversation(participantIds: string[]): Promise<string | null> {
     try {
       // Create conversation
-      const { data: conversation, error: convError } = await this.supabase
-        .from("conversations")
-        .insert({})
-        .select()
-        .single()
+      const { data: conversation } = await this.supabase.from("conversations").insert({}).select().single()
 
-      if (convError) {
-        console.error("Error creating conversation:", convError)
-        return null
-      }
+      if (!conversation) return null
 
       // Add participants
       const participants = participantIds.map((userId) => ({
@@ -165,16 +125,11 @@ class MessagingService {
         user_id: userId,
       }))
 
-      const { error: participantsError } = await this.supabase.from("conversation_participants").insert(participants)
-
-      if (participantsError) {
-        console.error("Error adding participants:", participantsError)
-        return null
-      }
+      await this.supabase.from("conversation_participants").insert(participants)
 
       return conversation.id
     } catch (error) {
-      console.error("Error in createConversation:", error)
+      console.error("Error creating conversation:", error)
       return null
     }
   }
@@ -190,32 +145,8 @@ class MessagingService {
           table: "messages",
           filter: `conversation_id=eq.${conversationId}`,
         },
-        async (payload) => {
-          // Fetch the complete message with sender info
-          const { data } = await this.supabase
-            .from("messages")
-            .select(`
-              id,
-              conversation_id,
-              sender_id,
-              content,
-              message_type,
-              created_at,
-              is_read,
-              profiles (
-                full_name,
-                username
-              )
-            `)
-            .eq("id", payload.new.id)
-            .single()
-
-          if (data) {
-            callback({
-              ...data,
-              sender: data.profiles,
-            })
-          }
+        (payload) => {
+          callback(payload.new as Message)
         },
       )
       .subscribe()
