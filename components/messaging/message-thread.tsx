@@ -33,13 +33,17 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
         setError(null)
         setLoading(true)
 
+        console.log("Fetching data for conversation:", conversationId)
+
         // Fetch conversation details
         const conversations = await messagingService.getUserConversations(user.id)
         const currentConversation = conversations.find((c) => c.id === conversationId)
+        console.log("Found conversation:", currentConversation)
         setConversation(currentConversation || null)
 
         // Fetch messages
         const messages = await messagingService.getConversationMessages(conversationId)
+        console.log("Fetched messages:", messages)
         setMessages(messages)
       } catch (error) {
         console.error("Error fetching conversation data:", error)
@@ -53,10 +57,12 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
 
     // Subscribe to new messages
     const subscription = messagingService.subscribeToConversation(conversationId, (message) => {
+      console.log("Received new message:", message)
       setMessages((prev) => [...prev, message])
     })
 
     return () => {
+      console.log("Unsubscribing from conversation")
       subscription.unsubscribe()
     }
   }, [conversationId, user])
@@ -69,14 +75,19 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
 
-    if (!user || !conversationId || !newMessage.trim()) return
+    if (!user || !conversationId || !newMessage.trim()) {
+      console.log("Cannot send message - missing data")
+      return
+    }
 
     setSending(true)
     setError(null)
 
     try {
+      console.log("Sending message...")
       await messagingService.sendMessage(conversationId, user.id, newMessage.trim())
       setNewMessage("")
+      console.log("Message sent successfully")
     } catch (error) {
       console.error("Error sending message:", error)
       setError("Failed to send message")
@@ -143,7 +154,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
     )
   }
 
-  if (!conversation || !otherParticipant) {
+  if (!conversation) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
@@ -164,19 +175,21 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
           <div className="flex items-center space-x-3">
             <Avatar className="h-10 w-10">
               <AvatarImage
-                src={otherParticipant.profile?.avatar_url || "/placeholder.svg"}
-                alt={otherParticipant.profile?.full_name || "User"}
+                src={otherParticipant?.profile?.avatar_url || "/placeholder.svg"}
+                alt={otherParticipant?.profile?.full_name || "User"}
               />
               <AvatarFallback className="bg-gradient-to-r from-rose-500 to-amber-500 text-white">
-                {otherParticipant.profile?.full_name?.charAt(0) || otherParticipant.profile?.username?.charAt(0) || "U"}
+                {otherParticipant?.profile?.full_name?.charAt(0) ||
+                  otherParticipant?.profile?.username?.charAt(0) ||
+                  "U"}
               </AvatarFallback>
             </Avatar>
             <div>
               <h2 className="text-lg font-medium text-slate-800 dark:text-white">
-                {otherParticipant.profile?.full_name || otherParticipant.profile?.username || "Unknown User"}
+                {otherParticipant?.profile?.full_name || otherParticipant?.profile?.username || "Test User"}
               </h2>
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                @{otherParticipant.profile?.username || "unknown"}
+                @{otherParticipant?.profile?.username || "testuser"}
               </p>
             </div>
           </div>
@@ -211,9 +224,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
                 <Send className="h-8 w-8 text-white" />
               </div>
               <h3 className="text-lg font-medium text-slate-600 dark:text-slate-300 mb-2">Start the conversation!</h3>
-              <p className="text-slate-500 dark:text-slate-400">
-                Send your first message to {otherParticipant.profile?.full_name || "this user"}.
-              </p>
+              <p className="text-slate-500 dark:text-slate-400">Send your first message to begin chatting.</p>
             </div>
           </div>
         ) : (
@@ -284,7 +295,7 @@ export function MessageThread({ conversationId }: MessageThreadProps) {
         <form onSubmit={handleSendMessage} className="flex items-end gap-3">
           <div className="flex-1">
             <Textarea
-              placeholder={`Message ${otherParticipant.profile?.full_name || "user"}...`}
+              placeholder="Type your message..."
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               className="min-h-[60px] max-h-[120px] resize-none border-slate-300 dark:border-slate-600 focus:border-rose-500 dark:focus:border-rose-400"

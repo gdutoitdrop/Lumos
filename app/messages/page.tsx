@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { createClient } from "@/lib/supabase/client"
 import { useAuth } from "@/components/auth/auth-provider"
+import { ConversationsList } from "@/components/messaging/conversations-list"
 
 export default function MessagesPage() {
   const searchParams = useSearchParams()
@@ -149,8 +150,12 @@ export default function MessagesPage() {
     }
   }
 
-  const openConversation = (conversationId: string) => {
-    window.location.href = `/messages/chat/${conversationId}`
+  const handleSelectConversation = (conversationId: string) => {
+    setSelectedConversationId(conversationId)
+    // Update URL without page reload
+    const url = new URL(window.location.href)
+    url.searchParams.set("conversation", conversationId)
+    window.history.pushState({}, "", url.toString())
   }
 
   if (loading) {
@@ -279,31 +284,11 @@ export default function MessagesPage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {conversations.map((conversation) => (
-                      <Card
-                        key={conversation.id}
-                        className="hover:shadow-md transition-all duration-200 cursor-pointer border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700"
-                        onClick={() => openConversation(conversation.id)}
-                      >
-                        <CardContent className="p-4">
-                          <div className="flex items-center space-x-3">
-                            <Avatar className="h-10 w-10">
-                              <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white">
-                                C
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1 min-w-0">
-                              <h3 className="text-sm font-medium text-slate-800 dark:text-white">Conversation</h3>
-                              <p className="text-xs text-slate-500 dark:text-slate-400">
-                                Created: {new Date(conversation.created_at).toLocaleDateString()}
-                              </p>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
+                  <ConversationsList
+                    conversations={conversations}
+                    onSelectConversation={handleSelectConversation}
+                    selectedConversationId={selectedConversationId}
+                  />
                 )}
               </div>
             </div>
@@ -322,7 +307,7 @@ export default function MessagesPage() {
                 </div>
                 <h2 className="text-2xl font-bold mb-3 text-slate-700 dark:text-slate-300">Select a conversation</h2>
                 <p className="text-slate-500 dark:text-slate-400">
-                  Choose a conversation from the list to start messaging
+                  Choose a conversation from the list to start messaging, or create a new test conversation
                 </p>
               </div>
             </div>

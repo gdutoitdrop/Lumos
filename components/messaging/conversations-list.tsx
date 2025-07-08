@@ -22,6 +22,7 @@ export function ConversationsList({ onSelectConversation, selectedConversationId
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     if (!user) {
@@ -32,7 +33,9 @@ export function ConversationsList({ onSelectConversation, selectedConversationId
     const fetchConversations = async () => {
       try {
         setError(null)
+        console.log("Fetching conversations for user:", user.id)
         const conversations = await messagingService.getUserConversations(user.id)
+        console.log("Fetched conversations:", conversations)
         setConversations(conversations)
       } catch (error) {
         console.error("Error fetching conversations:", error)
@@ -44,6 +47,29 @@ export function ConversationsList({ onSelectConversation, selectedConversationId
 
     fetchConversations()
   }, [user])
+
+  const createTestConversation = async () => {
+    if (!user) return
+
+    setCreating(true)
+    setError(null)
+
+    try {
+      console.log("Creating test conversation")
+      const conversationId = await messagingService.createConversation(user.id, "22222222-2222-2222-2222-222222222222")
+      console.log("Created conversation:", conversationId)
+      onSelectConversation(conversationId)
+
+      // Refresh conversations list
+      const conversations = await messagingService.getUserConversations(user.id)
+      setConversations(conversations)
+    } catch (error) {
+      console.error("Error creating test conversation:", error)
+      setError("Failed to create conversation")
+    } finally {
+      setCreating(false)
+    }
+  }
 
   const getOtherParticipant = (conversation: Conversation) => {
     return conversation.participants.find((p) => p.user_id !== user?.id)
@@ -93,11 +119,12 @@ export function ConversationsList({ onSelectConversation, selectedConversationId
           <h1 className="text-xl font-bold text-slate-800 dark:text-white">Messages</h1>
           <Button
             size="sm"
-            onClick={() => (window.location.href = "/messages/new")}
+            onClick={createTestConversation}
+            disabled={creating}
             className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white"
           >
             <Plus className="h-4 w-4 mr-2" />
-            New
+            {creating ? "Creating..." : "Test Chat"}
           </Button>
         </div>
         <div className="relative">
@@ -128,16 +155,17 @@ export function ConversationsList({ onSelectConversation, selectedConversationId
             </h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
               {conversations.length === 0
-                ? "Start a conversation with someone from your matches"
+                ? "Create a test conversation to get started"
                 : "Try adjusting your search terms"}
             </p>
             {conversations.length === 0 && (
               <Button
-                onClick={() => (window.location.href = "/messages/new")}
+                onClick={createTestConversation}
+                disabled={creating}
                 className="bg-gradient-to-r from-rose-500 to-amber-500 text-white"
               >
                 <Plus className="h-4 w-4 mr-2" />
-                Start New Conversation
+                {creating ? "Creating..." : "Create Test Conversation"}
               </Button>
             )}
           </div>
