@@ -4,10 +4,12 @@ import { ProfileDemo } from "@/components/profile-demo"
 import { ForumPreview } from "@/components/forum-preview"
 import { ResourceHub } from "@/components/resource-hub"
 import { Footer } from "@/components/footer"
+import { Navigation } from "@/components/navigation"
 
 export default function Home() {
   return (
     <div className="min-h-screen bg-white dark:bg-slate-950">
+      <Navigation />
       <HeroSection />
 
       <section className="py-20 px-4">
