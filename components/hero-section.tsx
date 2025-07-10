@@ -1,93 +1,52 @@
-"use client"
-
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
-import { Heart, Users, MessageCircle, Shield } from "lucide-react"
+import { Heart, Users, ArrowRight } from "lucide-react"
 import Link from "next/link"
 
 export function HeroSection() {
   return (
-    <section className="relative bg-gradient-to-br from-rose-50 via-white to-amber-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
-      <div className="container mx-auto px-4 py-20">
-        <div className="max-w-4xl mx-auto text-center">
-          {/* Main heading */}
-          <h1 className="text-4xl md:text-6xl font-bold mb-6">
-            Find Your{" "}
+    <section className="container mx-auto py-20 px-4">
+      <div className="flex flex-col lg:flex-row items-center gap-12">
+        <div className="lg:w-1/2">
+          <h1 className="text-4xl md:text-5xl font-bold mb-6">
             <span className="bg-gradient-to-r from-rose-500 to-amber-500 bg-clip-text text-transparent">
-              Mental Health
+              Meaningful connections
             </span>{" "}
-            Community
+            for mental wellbeing
           </h1>
-
-          {/* Subheading */}
-          <p className="text-xl md:text-2xl text-slate-600 dark:text-slate-300 mb-8 max-w-3xl mx-auto">
-            Connect with others who understand your journey. Find support, build meaningful relationships, and grow
-            together in a safe, judgment-free space.
+          <p className="text-slate-600 dark:text-slate-300 text-lg mb-8 max-w-xl">
+            An inclusive, stigma-free platform created for individuals navigating mental health challenges who seek
+            meaningful, safe, and emotionally resonant social connections.
           </p>
-
-          {/* CTA Buttons */}
-          <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
-            <Button
-              size="lg"
-              asChild
-              className="bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-600 hover:to-amber-600 text-white px-8 py-3 text-lg"
-            >
-              <Link href="/signup">Start Your Journey</Link>
+          <div className="flex flex-col sm:flex-row gap-4">
+            <Button size="lg" className="bg-gradient-to-r from-rose-500 to-amber-500 text-white" asChild>
+              <Link href="/signup">
+                <Heart className="mr-2 h-5 w-5" /> Date Mode
+              </Link>
             </Button>
-            <Button size="lg" variant="outline" asChild className="px-8 py-3 text-lg bg-transparent">
-              <Link href="/how-it-works">How It Works</Link>
+            <Button size="lg" variant="outline" asChild>
+              <Link href="/signup">
+                <Users className="mr-2 h-5 w-5" /> Connect Mode
+              </Link>
             </Button>
           </div>
-
-          {/* Feature cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
-              <CardContent className="p-6 text-center">
-                <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-3 w-12 h-12 mx-auto mb-4 flex items-center justify-center">
-                  <Heart className="h-6 w-6 text-white" />
-                </div>
-                <h3 className="font-semibold text-lg mb-2">Find Your Match</h3>
-                <p className="text-slate-600 dark:text-slate-300 text-sm">
-                  Connect with people who share similar experiences and understand your journey.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
-              <CardContent className="p-6 text-center">
-                <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-3 w-12 h-12 mx-auto mb-4 flex items-center justify-center">
-                  <MessageCircle className="h-6 w-6 text-white" />
-                </div>
-                <h3 className="font-semibold text-lg mb-2">Safe Messaging</h3>
-                <p className="text-slate-600 dark:text-slate-300 text-sm">
-                  Private, secure conversations with built-in safety features and moderation.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
-              <CardContent className="p-6 text-center">
-                <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-3 w-12 h-12 mx-auto mb-4 flex items-center justify-center">
-                  <Users className="h-6 w-6 text-white" />
-                </div>
-                <h3 className="font-semibold text-lg mb-2">Support Groups</h3>
-                <p className="text-slate-600 dark:text-slate-300 text-sm">
-                  Join topic-specific communities and forums for ongoing support and discussion.
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-0 shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
-              <CardContent className="p-6 text-center">
-                <div className="bg-gradient-to-r from-rose-500 to-amber-500 rounded-full p-3 w-12 h-12 mx-auto mb-4 flex items-center justify-center">
-                  <Shield className="h-6 w-6 text-white" />
-                </div>
-                <h3 className="font-semibold text-lg mb-2">Privacy First</h3>
-                <p className="text-slate-600 dark:text-slate-300 text-sm">
-                  Your privacy and safety are our top priorities. Full control over your information.
-                </p>
-              </CardContent>
-            </Card>
+          <div className="mt-8 flex items-center gap-2">
+            <p className="text-slate-500 dark:text-slate-400">Already a member?</p>
+            <Button variant="link" className="text-rose-500 p-0" asChild>
+              <Link href="/login">
+                Sign in <ArrowRight className="ml-1 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+        <div className="lg:w-1/2">
+          <div className="relative">
+            <div className="absolute -top-6 -left-6 w-64 h-64 bg-rose-200 dark:bg-rose-900/30 rounded-full filter blur-3xl opacity-70"></div>
+            <div className="absolute -bottom-8 -right-8 w-64 h-64 bg-amber-200 dark:bg-amber-900/30 rounded-full filter blur-3xl opacity-70"></div>
+            <img
+              src="/placeholder.svg?height=600&width=600"
+              alt="People connecting through Lumos"
+              className="relative z-10 rounded-2xl shadow-xl"
+            />
           </div>
         </div>
       </div>

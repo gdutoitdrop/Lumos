@@ -3,7 +3,7 @@
 import type React from "react"
 import { createContext, useContext, useEffect, useState } from "react"
 import type { Session, User } from "@supabase/supabase-js"
-import { createClient } from "@/lib/supabase/client"
+import { supabase } from "@/lib/supabase/client" // Use singleton instance
 import { useRouter } from "next/navigation"
 
 type AuthContextType = {
@@ -11,6 +11,7 @@ type AuthContextType = {
   session: Session | null
   isLoading: boolean
   signOut: () => Promise<void>
+  resetPassword: (email: string) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -20,11 +21,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
-  const supabase = createClient()
 
   useEffect(() => {
-    let mounted = true
-
     const getSession = async () => {
       try {
         const {
@@ -36,16 +34,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.error("Error getting session:", error)
         }
 
-        if (mounted) {
-          setSession(session)
-          setUser(session?.user ?? null)
-          setIsLoading(false)
-        }
+        setSession(session)
+        setUser(session?.user ?? null)
       } catch (error) {
         console.error("Error in getSession:", error)
-        if (mounted) {
-          setIsLoading(false)
-        }
+      } finally {
+        setIsLoading(false)
       }
     }
 
@@ -53,46 +47,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth state changed:", event, session?.user?.id)
-
-      if (mounted) {
-        setSession(session)
-        setUser(session?.user ?? null)
-        setIsLoading(false)
-      }
-
-      if (event === "SIGNED_IN" && session) {
-        try {
-          const { data: profile, error } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", session.user.id)
-            .single()
-
-          if (error && error.code === "PGRST116") {
-            await supabase.from("profiles").insert({
-              id: session.user.id,
-              username: session.user.email,
-              full_name: session.user.user_metadata?.full_name || session.user.email,
-            })
-          }
-        } catch (error) {
-          console.error("Error handling profile:", error)
-        }
-      }
-
-      if (!mounted) return
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session)
+      setUser(session?.user ?? null)
+      setIsLoading(false)
       router.refresh()
     })
 
     return () => {
-      mounted = false
       subscription.unsubscribe()
     }
-  }, [router, supabase])
+  }, [router])
 
   const signOut = async () => {
+    setIsLoading(true)
     try {
       const { error } = await supabase.auth.signOut()
       if (error) {
@@ -102,10 +70,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("Error signing out:", error)
       throw error
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  return <AuthContext.Provider value={{ user, session, isLoading, signOut }}>{children}</AuthContext.Provider>
+  const resetPassword = async (email: string) => {
+    setIsLoading(true)
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      })
+      if (error) {
+        throw error
+      }
+    } catch (error) {
+      console.error("Error resetting password:", error)
+      throw error
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, session, isLoading, signOut, resetPassword }}>{children}</AuthContext.Provider>
+  )
 }
 
 export function useAuth() {
